@@ -27,21 +27,21 @@ function App() {
     window.electronAPI.getDeviceInfo().then(setDeviceInfo)
 
     // Escuchar estado de servidores
-    window.electronAPI.onServerStatus((status) => {
+    window.electronAPI.onServerStatus((status: any) => {
       setServerStatus(prev => ({ ...prev, ...status }))
     })
 
-    // Escuchar dispositivos encontrados
+    // Escuchar dispositivos encontrados (Celular)
     window.electronAPI.onDeviceFound((device: Device) => {
       setDevices(prev => {
-        const exists = prev.find(d => d.ip === device.ip)
-        if (exists) return prev
-        return [...prev, device]
+        // Filtramos cualquier versión vieja de este mismo alias para evitar fantasmas
+        const filtered = prev.filter(d => d.ip !== device.ip && d.alias !== device.alias);
+        return [...filtered, device]
       })
     })
 
     // Progreso de recepción
-    window.electronAPI.onTransferProgress((data) => {
+    window.electronAPI.onTransferProgress((data: any) => {
       setTransfer({ fileName: data.fileName, progress: data.progress, total: data.total })
     })
 
@@ -104,7 +104,10 @@ function App() {
 
       {/* Lista de dispositivos */}
       <section className="devices">
-        <h2>Dispositivos en la red {devices.length === 0 && <span className="scanning">escaneando...</span>}</h2>
+        <h2>
+          Dispositivos en la red {' '}
+          {devices.length === 0 && <span className="scanning">escaneando o esperando IP manual...</span>}
+        </h2>
         <div className="device-list">
           {devices.map(device => (
             <button key={device.ip} className="device-card" onClick={() => sendToDevice(device)}>

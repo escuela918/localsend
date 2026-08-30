@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, Notification } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
 import dgram from 'node:dgram'
 import http from 'node:http'
@@ -9,22 +9,44 @@ import os from 'node:os'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, '..')
-
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
-export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   ? path.join(process.env.APP_ROOT, 'public')
   : RENDERER_DIST
 
 const UDP_PORT = 53317
-const TCP_PORT = 53318
+const WS_PORT = 53318
 const DEVICE_ALIAS = `Desktop-${os.hostname()}`
 const DOWNLOAD_DIR = path.join(os.homedir(), 'Downloads', 'LocalSend')
-
 if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
 
-let win: BrowserWindow | null
+let win: BrowserWindow | null = null
+
+interface MobileDevice {
+  alias: string
+  ip: string
+  port: number
+  deviceType: 'mobile'
+  lastSeen: number
+}
+const mobileDevices = new Map<string, MobileDevice>()
+const STALE_MS = 15000
+
+interface PendingFile {
+  id: string
+  filePath: string
+  fileName: string
+  fileSize: number
+}
+const pendingByIP = new Map<string, PendingFile[]>()
+
+function cleanupStale() {
+  const now = Date.now()
+  for (const [ip, d] of mobileDevices) {
+    if (now - d.lastSeen > STALE_MS) mobileDevices.delete(ip)
+  }
+}
 
 function getLocalIP(): string {
   const interfaces = os.networkInterfaces()
@@ -42,45 +64,33 @@ function startUDPServer() {
   udpServer.on('message', (msg, rinfo) => {
     try {
       const data = JSON.parse(msg.toString())
-      if (data.type === 'beacon' && rinfo.address !== getLocalIP()) {
-        win?.webContents.send('device-found', {
+      const myIP = getLocalIP()
+      if (rinfo.address === myIP || data.alias === DEVICE_ALIAS) return
+
+      if (data.deviceType === 'mobile' && data.alias) {
+        mobileDevices.set(rinfo.address, {
           alias: data.alias,
           ip: rinfo.address,
-          port: data.port,
-          deviceType: data.deviceType ?? 'desktop',
+          port: data.port ?? WS_PORT,
+          deviceType: 'mobile',
+          lastSeen: Date.now(),
         })
+        win?.webContents.send('device-found', mobileDevices.get(rinfo.address))
       }
-      if (data.type === 'beacon') {
-        const response = Buffer.from(JSON.stringify({
-          type: 'beacon-response',
-          alias: DEVICE_ALIAS,
-          port: TCP_PORT,
-          deviceType: 'desktop',
-        }))
-        udpServer.send(response, rinfo.port, rinfo.address)
-      }
-    } catch {
-      // ignorar paquetes malformados
-    }
+    } catch (e) {}
   })
 
   udpServer.bind(UDP_PORT, () => {
     udpServer.setBroadcast(true)
     win?.webContents.send('server-status', { udp: true })
-    console.log(`UDP escuchando en puerto ${UDP_PORT}`)
   })
 
   setInterval(() => {
-    const beacon = Buffer.from(JSON.stringify({
-      type: 'beacon',
-      alias: DEVICE_ALIAS,
-      port: TCP_PORT,
-      deviceType: 'desktop',
-    }))
+    const beacon = Buffer.from(
+      JSON.stringify({ alias: DEVICE_ALIAS, port: WS_PORT, deviceType: 'desktop' })
+    )
     udpServer.send(beacon, UDP_PORT, '255.255.255.255')
   }, 3000)
-
-  return udpServer
 }
 
 function getUniquePath(filePath: string): string {
@@ -93,51 +103,141 @@ function getUniquePath(filePath: string): string {
   return path.join(dir, `${base}(${i})${ext}`)
 }
 
-function startTCPServer() {
+function startHttpServer() {
   const server = http.createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/upload') {
-      const fileName = decodeURIComponent((req.headers['x-file-name'] as string) ?? 'archivo')
-      const fileSize = parseInt((req.headers['x-file-size'] as string) ?? '0')
-      const savePath = getUniquePath(path.join(DOWNLOAD_DIR, fileName))
-      const writeStream = fs.createWriteStream(savePath)
-      let received = 0
+    const clientIP = req.socket.remoteAddress?.replace(/^.*:/, '') || 'unknown'
 
-      req.on('data', (chunk: Buffer | string) => {
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        received += buf.length
-        writeStream.write(buf)
-        const progress = Math.round((received / fileSize) * 100)
-        win?.webContents.send('transfer-progress', { fileName, progress, received, total: fileSize })
+    // 📱 El celular se registra
+    if (req.method === 'POST' && req.url === '/register') {
+      let body = ''
+      req.on('data', (chunk) => (body += chunk))
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          mobileDevices.set(clientIP, {
+            alias: data.alias,
+            ip: clientIP,
+            port: data.port ?? WS_PORT,
+            deviceType: 'mobile',
+            lastSeen: Date.now(),
+          })
+          win?.webContents.send('device-found', mobileDevices.get(clientIP))
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: false, error: 'bad json' }))
+        }
+      })
+      return
+    }
+
+    // 📱 Lista de dispositivos (incluye la PC, excluye al que pregunta)
+    if (req.method === 'GET' && req.url === '/devices') {
+      cleanupStale()
+      const selfEntry = {
+        alias: DEVICE_ALIAS,
+        ip: getLocalIP(),
+        port: WS_PORT,
+        deviceType: 'desktop' as const,
+      }
+      const list = [selfEntry, ...mobileDevices.values()].filter((d) => d.ip !== clientIP)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(list))
+      return
+    }
+
+    // 📱 El celular pregunta si tiene archivos esperándolo
+    if (req.method === 'GET' && req.url === '/incoming') {
+      const list = (pendingByIP.get(clientIP) ?? []).map((f) => ({
+        id: f.id,
+        fileName: f.fileName,
+        fileSize: f.fileSize,
+      }))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(list))
+      return
+    }
+
+    // 📱 El celular descarga un archivo puntual de la cola
+    if (req.method === 'GET' && req.url?.startsWith('/download/')) {
+      const id = req.url.split('/download/')[1]
+      const list = pendingByIP.get(clientIP) ?? []
+      const idx = list.findIndex((f) => f.id === id)
+
+      if (idx === -1) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+
+      const file = list[idx]
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': file.fileSize,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.fileName)}"`,
       })
 
-      req.on('end', () => {
-        writeStream.end()
-        win?.webContents.send('transfer-complete', { fileName, savePath })
-        res.writeHead(200)
-        res.end(JSON.stringify({ ok: true }))
+      const readStream = fs.createReadStream(file.filePath)
+      readStream.pipe(res)
+      readStream.on('close', () => {
+        list.splice(idx, 1)
+        win?.webContents.send('transfer-complete')
         new Notification({
-          title: 'Archivo recibido',
-          body: `${fileName} guardado en Descargas/LocalSend`,
+          title: '📤 Enviado',
+          body: `${file.fileName} fue descargado por el celular.`,
         }).show()
       })
-
-      req.on('error', () => {
-        writeStream.destroy()
-        res.writeHead(500)
-        res.end()
+      readStream.on('error', () => {
+        list.splice(idx, 1)
       })
-    } else {
-      res.writeHead(404)
-      res.end()
+      return
     }
+
+    // 🖥️ El celular SUBE un archivo binario directo por HTTP (sin base64)
+    if (req.method === 'POST' && req.url?.startsWith('/upload')) {
+      const urlObj = new URL(req.url, `http://${req.headers.host}`)
+      const rawName = urlObj.searchParams.get('fileName') || `archivo-${Date.now()}`
+      const fileName = decodeURIComponent(rawName)
+      const fullPath = getUniquePath(path.join(DOWNLOAD_DIR, fileName))
+      const writeStream = fs.createWriteStream(fullPath)
+      const fileSize = parseInt(req.headers['content-length'] || '0', 10)
+      let receivedBytes = 0
+
+      req.on('data', (chunk) => {
+        receivedBytes += chunk.length
+        if (fileSize > 0) {
+          const progress = Math.round((receivedBytes / fileSize) * 100)
+          win?.webContents.send('transfer-progress', { fileName, progress, total: fileSize })
+        }
+      })
+
+      req.pipe(writeStream)
+
+      writeStream.on('finish', () => {
+        win?.webContents.send('transfer-complete')
+        new Notification({
+          title: '📦 Archivo recibido con éxito',
+          body: `${fileName} guardado en ${DOWNLOAD_DIR}`,
+        }).show()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      })
+
+      writeStream.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false }))
+      })
+      return
+    }
+
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('LocalSend TCP Node Active')
   })
 
-  server.listen(TCP_PORT, () => {
+  server.listen(WS_PORT, '0.0.0.0', () => {
     win?.webContents.send('server-status', { tcp: true })
-    console.log(`TCP escuchando en puerto ${TCP_PORT}`)
   })
-
-  return server
 }
 
 function setupIPC() {
@@ -147,41 +247,23 @@ function setupIPC() {
     downloadDir: DOWNLOAD_DIR,
   }))
 
-  ipcMain.handle('send-file', async (_event, { filePath, targetIP, targetPort }: { filePath: string; targetIP: string; targetPort: number }) => {
-    return new Promise((resolve, reject) => {
+  // La PC solo pone el archivo en cola; el celular lo baja solo vía /incoming.
+  ipcMain.handle('send-file', async (_event, { filePath, targetIP }) => {
+    try {
+      if (!fs.existsSync(filePath)) return { ok: false, error: 'archivo no existe' }
       const fileName = path.basename(filePath)
       const fileSize = fs.statSync(filePath).size
-      const readStream = fs.createReadStream(filePath)
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-      const options = {
-        hostname: targetIP,
-        port: targetPort,
-        path: '/upload',
-        method: 'POST',
-        headers: {
-          'x-file-name': encodeURIComponent(fileName),
-          'x-file-size': fileSize,
-          'Content-Type': 'application/octet-stream',
-        },
-      }
+      const list = pendingByIP.get(targetIP) ?? []
+      list.push({ id, filePath, fileName, fileSize })
+      pendingByIP.set(targetIP, list)
 
-      const req = http.request(options, (res) => {
-        res.on('data', () => {})
-        res.on('end', () => resolve({ ok: true }))
-      })
-
-      req.on('error', reject)
-
-      let sent = 0
-      readStream.on('data', (chunk: Buffer | string) => {
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        sent += buf.length
-        const progress = Math.round((sent / fileSize) * 100)
-        win?.webContents.send('send-progress', { fileName, progress, sent, total: fileSize })
-      })
-
-      readStream.pipe(req)
-    })
+      win?.webContents.send('transfer-queued', { fileName, targetIP })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false }
+    }
   })
 }
 
@@ -189,7 +271,6 @@ function createWindow() {
   win = new BrowserWindow({
     width: 900,
     height: 650,
-    icon: path.join(process.env.VITE_PUBLIC!, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -199,7 +280,7 @@ function createWindow() {
 
   win.webContents.on('did-finish-load', () => {
     startUDPServer()
-    startTCPServer()
+    startHttpServer()
     setupIPC()
   })
 
@@ -210,15 +291,21 @@ function createWindow() {
   }
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
-  }
-})
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
-
 app.whenReady().then(createWindow)
+
+export {}
+
+declare global {
+  interface Window {
+    electronAPI: {
+      getDeviceInfo: () => Promise<{ alias: string; ip: string; downloadDir: string }>
+      sendFile: (filePath: string, targetIP: string, targetPort: number) => Promise<{ ok: boolean }>
+      onDeviceFound: (cb: (device: any) => void) => void
+      onServerStatus: (cb: (status: any) => void) => void
+      onTransferProgress: (cb: (data: any) => void) => void
+      onTransferComplete: (cb: (data: any) => void) => void
+      onSendProgress: (cb: (data: any) => void) => void
+      removeAllListeners: (channel: string) => void
+    }
+  }
+}
