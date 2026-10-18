@@ -1,59 +1,176 @@
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================================================
+   COLORES (modo claro / oscuro automático según Windows)
+   ============================================================ */
+:root {
+  --bg: #f4f5fb;
+  --surface: #ffffff;
+  --surface-2: #eef0f8;
+  --border: #e1e4f0;
+  --text: #171a2c;
+  --text-2: #5d6380;
+  --accent: #5b5bf0;
+  --accent-soft: #e8e8ff;
+  --ok: #16a34a;
+  --ok-soft: #e3f7ea;
+  --err: #dc2626;
+  --err-soft: #fde8e8;
+  --shadow: 0 1px 2px rgba(20, 24, 60, 0.06), 0 8px 24px rgba(20, 24, 60, 0.06);
+  color-scheme: light;
+}
 
-body { background: #0f0f13; color: #e0e0e0; font-family: system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0f16;
+    --surface: #171925;
+    --surface-2: #1f2232;
+    --border: #2a2d40;
+    --text: #eceef8;
+    --text-2: #9499b5;
+    --accent: #7c7cff;
+    --accent-soft: #23244a;
+    --ok: #22c55e;
+    --ok-soft: #0f2a1a;
+    --err: #f87171;
+    --err-soft: #2d1416;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+    color-scheme: dark;
+  }
+}
 
-.app { max-width: 800px; margin: 0 auto; padding: 24px; }
+body { background: var(--bg); color: var(--text); }
 
-.header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
-.header h1 { font-size: 1.5rem; font-weight: 700; }
-.status { display: flex; align-items: center; gap: 8px; }
-.led { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.led--green { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
-.led--red { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
-.device-name { margin-left: auto; font-size: 0.85rem; color: #888; }
+.app { max-width: 880px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
 
+/* ============================================================
+   ENCABEZADO
+   ============================================================ */
+.header { display: flex; align-items: center; gap: 14px; }
+.logo {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: grid; place-items: center; font-size: 1.4rem;
+  background: linear-gradient(135deg, var(--accent), #a855f7);
+  box-shadow: var(--shadow);
+}
+.header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+.device-name { font-size: 0.82rem; color: var(--text-2); }
+.status {
+  margin-left: auto; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.led { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.led--green { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.led--red { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+
+/* ============================================================
+   TARJETAS
+   ============================================================ */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 20px; box-shadow: var(--shadow);
+}
+.card-title { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; font-weight: 650; margin-bottom: 14px; }
+.step {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 0.75rem; font-weight: 700; background: var(--accent-soft); color: var(--accent);
+}
+.card-hint { margin-left: auto; font-size: 0.78rem; font-weight: 500; color: var(--text-2); }
+
+/* ============================================================
+   ZONA DRAG & DROP
+   ============================================================ */
 .dropzone {
-  border: 2px dashed #333;
-  border-radius: 12px;
-  padding: 48px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 24px;
-  color: #666;
+  border: 2px dashed var(--border); border-radius: 14px; padding: 36px 20px;
+  text-align: center; cursor: pointer; color: var(--text-2);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
 }
-.dropzone--active { border-color: #6366f1; background: #1e1e2e; color: #a5b4fc; transform: scale(1.01); }
-.dropzone--ready { border-color: #22c55e; background: #0d1f12; color: #86efac; }
+.dropzone:hover { border-color: var(--accent); }
+.dropzone-icon { font-size: 2.2rem; }
+.dropzone strong { color: var(--text); font-weight: 600; word-break: break-all; }
+.dropzone small { font-size: 0.8rem; }
+.dropzone--active { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.01); }
+.dropzone--ready { border-style: solid; border-color: var(--ok); background: var(--ok-soft); }
+.link-button {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font-size: 0.8rem; font-weight: 600; margin-top: 4px;
+}
 
-.devices h2 { font-size: 1rem; margin-bottom: 12px; color: #aaa; }
-.scanning { font-size: 0.8rem; color: #6366f1; animation: pulse 1.5s infinite; margin-left: 8px; }
-@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }
-
-.device-list { display: flex; flex-wrap: wrap; gap: 12px; }
+/* ============================================================
+   DISPOSITIVOS
+   ============================================================ */
+.device-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
 .device-card {
-  background: #1a1a2e;
-  border: 1px solid #333;
-  border-radius: 10px;
-  padding: 16px 20px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  min-width: 130px;
-  transition: all 0.15s;
-  color: #e0e0e0;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px;
+  padding: 18px 14px; cursor: pointer; color: var(--text);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.device-card:hover { border-color: #6366f1; background: #1e1e3a; transform: translateY(-2px); }
-.device-icon { font-size: 2rem; }
-.device-alias { font-weight: 600; font-size: 0.9rem; }
-.device-ip { font-size: 0.75rem; color: #666; }
+.device-card:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
+.device-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.device-icon {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 1.6rem; background: var(--accent-soft); margin-bottom: 6px;
+}
+.device-alias { font-weight: 600; font-size: 0.92rem; text-align: center; }
+.device-ip { font-size: 0.75rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.device-action { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 4px; }
 
-.progress-bar-container {
-  margin-top: 24px;
-  background: #1a1a2e;
-  border-radius: 10px;
-  padding: 16px;
+/* Radar cuando no hay dispositivos */
+.radar { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0 8px; color: var(--text-2); font-size: 0.88rem; }
+.radar-circle { position: relative; width: 72px; height: 72px; display: grid; place-items: center; font-size: 1.6rem; }
+.radar-circle::before, .radar-circle::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid var(--accent); opacity: 0; animation: ping 2s infinite;
 }
-.progress-bar { background: #333; border-radius: 999px; height: 8px; margin: 8px 0; overflow: hidden; }
-.progress-bar__fill { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.3s; }
+.radar-circle::after { animation-delay: 1s; }
+@keyframes ping { 0% { transform: scale(0.5); opacity: 0.8 } 100% { transform: scale(1.4); opacity: 0 } }
+
+/* ============================================================
+   MONITOR DE TRANSFERENCIA
+   ============================================================ */
+.transfer { display: flex; flex-direction: column; gap: 10px; }
+.transfer-header { display: flex; align-items: center; gap: 12px; }
+.transfer-icon {
+  width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  font-size: 1.2rem; background: var(--accent-soft); flex-shrink: 0;
+}
+.transfer-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.transfer-title small { font-size: 0.75rem; color: var(--text-2); }
+.transfer-title strong { font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-percent { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.progress-bar { background: var(--surface-2); border-radius: 999px; height: 10px; overflow: hidden; }
+.progress-bar__fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.3s ease; }
+
+.transfer-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+.stat {
+  background: var(--surface-2); border-radius: 10px; padding: 8px 12px;
+  display: flex; flex-direction: column; min-width: 110px; flex: 1;
+}
+.stat small { font-size: 0.7rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat span { font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.transfer-detail { font-size: 0.82rem; color: var(--text-2); }
+
+.transfer--done { border-color: var(--ok); }
+.transfer--done .progress-bar__fill { background: var(--ok); }
+.transfer--done .transfer-icon { background: var(--ok-soft); }
+.transfer--error { border-color: var(--err); }
+.transfer--error .progress-bar__fill { background: var(--err); }
+.transfer--error .transfer-icon { background: var(--err-soft); }
+
+.transfer-error {
+  background: var(--err-soft); color: var(--err); border-radius: 10px; padding: 10px 12px;
+  font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;
+}
+.transfer-error .transfer-detail { color: var(--text-2); }
+.transfer-close {
+  align-self: flex-end; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 16px; cursor: pointer; font-weight: 600;
+}
+.transfer-close:hover { border-color: var(--accent); }
+
+/* ============================================================
+   PIE
+   ============================================================ */
+.footer { margin-top: auto; font-size: 0.78rem; color: var(--text-2); text-align: center; word-break: break-all; }
