@@ -1,0 +1,67 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "06 · B2: Nombres repetidos",
+  "description": "Pregunta B2: qué pasa si el archivo ya existe en la carpeta",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2490,
+          "character": 1
+        },
+        "end": {
+          "line": 2496,
+          "character": 200
+        }
+      },
+      "title": "Dónde se decide el nombre final",
+      "description": "## Qué hace\n`finalPath = getUniquePath(path.join(DOWNLOAD_DIR, fileName))`\n\n1. `path.join` arma `C:\\Users\\...\\Downloads\\LocalSend\\foto.jpg`.\n2. `getUniquePath` devuelve una ruta **que no exista**.\n\n### 📖 Palabras técnicas\n- **path.join**: une partes de una ruta con el separador correcto del sistema (`\\` en Windows y `/` en Linux).\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 06 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1065,
+          "character": 1
+        },
+        "end": {
+          "line": 1122,
+          "character": 200
+        }
+      },
+      "title": "getUniquePath: la resolución de conflictos",
+      "description": "## Qué hace cada línea\n- **L1069–1077** `if (!fs.existsSync(filePath)) return filePath` → si **no existe**, se usa tal cual.\n- **L1079–1082** `path.extname` → la extensión: `.jpg`.\n- **L1084–1088** `path.basename(filePath, ext)` → el nombre sin extensión: `foto`.\n- **L1090–1093** `path.dirname` → la carpeta.\n- **L1095–1102** primer candidato: `foto(1).jpg`.\n- **L1104–1118** `while (existe)` → `i++` y prueba `foto(2).jpg`, `foto(3).jpg`… hasta encontrar uno libre.\n- **L1120** devuelve el primero libre.\n\n### Ejemplo\n| Ya existe | Se guarda como |\n|---|---|\n| (nada) | `foto.jpg` |\n| `foto.jpg` | `foto(1).jpg` |\n| `foto.jpg`, `foto(1).jpg` | `foto(2).jpg` |\n\n### 📖 Palabras técnicas\n- **existsSync**: ¿existe este archivo? Devuelve `true` o `false`. El \"Sync\" significa que espera la respuesta antes de seguir; es instantáneo y está bien para esto.\n- **while**: repite mientras la condición sea verdadera.\n\n### 🎤 Qué decirle al profe\n> \"Nunca sobrescribimos. Si el nombre existe, le agregamos (1), (2)… igual que Windows, hasta encontrar uno libre.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 06 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1381,
+          "character": 1
+        },
+        "end": {
+          "line": 1393,
+          "character": 200
+        }
+      },
+      "title": "Sanitizar el nombre (seguridad)",
+      "description": "## Qué hace cada línea\n- **L1385–1389** `.replace(/[<>:\"/\\\\|?*\\x00-\\x1F]/g, '_')` → reemplaza por `_` los caracteres **prohibidos en Windows** y los invisibles.\n- **L1390** `.trim()` → saca espacios al principio y al final.\n- **L1391** si queda vacío, usa `archivo-<fecha>`.\n\n### 📖 Palabras técnicas\n- **Sanitizar**: limpiar un dato que viene de afuera antes de usarlo.\n- **Path traversal**: ataque que manda un nombre como `../../Windows/system32/x` para escribir **fuera** de la carpeta. Como sacamos `/` y `\\`, es imposible.\n- **`/g`** en la regex: reemplaza **todas** las apariciones, no solo la primera.\n\n### 🎤 Qué decirle al profe\n> \"Además limpiamos el nombre: sacamos los caracteres prohibidos y las barras. Eso evita errores y un ataque de path traversal.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 06 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 1916,
+          "character": 1
+        },
+        "end": {
+          "line": 1960,
+          "character": 200
+        }
+      },
+      "title": "Lo mismo en el celular",
+      "description": "## Qué hace\n`getUniqueDestination(fileName)`:\n1. Limpia caracteres prohibidos.\n2. Crea `new File(Paths.document, nombre)` en la carpeta de la app.\n3. `while (destination.exists)` → prueba `foto (1).jpg`, `foto (2).jpg`…\n\nY al guardar en una carpeta elegida, `directory.createFile` de Android también renombra solo si ya existe.\n\n### 🎤 Qué decirle al profe\n> \"En el celular aplicamos la misma lógica con la API de archivos de Expo.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 06 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

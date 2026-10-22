@@ -1,0 +1,67 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "03 · A2: HTTP, metadatos vs binario",
+  "description": "Pregunta A2: cómo diferenciamos JSON de los datos del archivo",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1411,
+          "character": 1
+        },
+        "end": {
+          "line": 1447,
+          "character": 200
+        }
+      },
+      "title": "El servidor HTTP",
+      "description": "## Qué hace cada línea\n- **L1411–1416** `http.createServer((req, res) => {...})` → crea el servidor. **Cada pedido** que llega ejecuta esta función:\n  - `req` (request) → lo que pide el celular: método, URL, headers y cuerpo.\n  - `res` (response) → lo que le respondemos.\n- **L1418–1428** `clientIP` → la IP del celular. El `.replace(/^::ffff:/, '')` saca el prefijo IPv6 (`::ffff:192.168.0.20` → `192.168.0.20`).\n- **L1433–1435** `markSeen(clientIP)` → cualquier pedido cuenta como latido (renueva el TTL).\n- **L1441–1447** `serverIP` → la IP de la PC **por la que llegó el pedido** (sirve si la PC tiene varias placas).\n\n### 📖 Palabras técnicas\n- **Servidor**: programa que **espera** pedidos y responde.\n- **Request / Response**: pedido y respuesta, la base de HTTP.\n- **`::ffff:`**: forma en que Node muestra una IPv4 dentro de un socket IPv6.\n- **Regex (`/^::ffff:/`)**: patrón para buscar o reemplazar texto. `^` significa \"al principio\".\n\n### 🎤 Qué decirle al profe\n> \"Usamos el módulo `http` de Node directamente, sin Express. Cada pedido entra por esta función y según el método y la ruta decidimos qué hacer.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 03 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1501,
+          "character": 1
+        },
+        "end": {
+          "line": 1530,
+          "character": 200
+        }
+      },
+      "title": "Metadatos: una ruta JSON (/register)",
+      "description": "## Qué hace cada línea\n- **L1501–1506** `if (req.method === 'POST' && req.url === '/register')` → **así diferenciamos**: por **método** y **ruta**.\n- **L1508–1519** el cuerpo llega en pedazos (`'data'`). Los vamos juntando en el texto `body`. Son pocos bytes, así que está bien.\n- **L1521–1530** cuando termina (`'end'`), `JSON.parse(body)` lo convierte en objeto.\n\nLo mismo pasa con `/devices`, `/incoming` y `/prepare-upload`: **todas son JSON**.\n\n### 📖 Palabras técnicas\n- **Ruta / endpoint**: la \"dirección\" dentro del servidor (`/register`, `/upload`).\n- **Método HTTP**: el verbo. **GET** = pedir datos, **POST** = mandar datos.\n- **Metadatos**: \"datos sobre los datos\": nombre del archivo, tamaño, tipo. No es el archivo en sí.\n- **Chunk**: un pedazo de datos que llega por la red.\n\n### 🎤 Qué decirle al profe\n> \"Los metadatos van en rutas propias, como JSON, y los leemos con `JSON.parse`. Nunca van mezclados con los bytes del archivo.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 03 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2402,
+          "character": 1
+        },
+        "end": {
+          "line": 2414,
+          "character": 200
+        }
+      },
+      "title": "Datos binarios: la ruta /upload",
+      "description": "## Qué hace cada línea\n- **L2402–2408** `POST /upload` → acá el **cuerpo es el archivo crudo**, byte por byte. **No es JSON.**\n- **L2410–2414** `new URL(req.url, ...)` → leemos los metadatos que vienen **en la URL**: `/upload?fileName=foto.jpg&size=123456&token=...`\n\n### Así se separan las cosas en HTTP\n| Dónde | Qué va | Ejemplo |\n|---|---|---|\n| URL (query string) | Metadatos | `fileName`, `size`, `token` |\n| Headers | Metadatos | `Content-Type: image/jpeg`, `Content-Length: 123456` |\n| **Body (cuerpo)** | **Los bytes del archivo** | 0xFF 0xD8 0xFF... |\n\nPara bajar archivos es igual: `GET /download/:id` responde con `Content-Type: application/octet-stream` (= \"bytes crudos\").\n\n### 📖 Palabras técnicas\n- **Query string**: lo que va después del `?` en una URL (`?fileName=x&size=y`).\n- **Header**: línea de información que va **antes** del cuerpo (`Content-Type`, `Content-Length`).\n- **Content-Type**: qué tipo de datos son (`application/json`, `image/jpeg`).\n- **Content-Length**: cuántos bytes mide el cuerpo. Lo usamos para **verificar la integridad**.\n- **octet-stream**: \"flujo de bytes\", es decir, binario sin formato.\n\n### 🎤 Qué decirle al profe\n> \"No usamos WebSockets: usamos HTTP. Lo diferenciamos por **ruta**: las de metadatos son JSON y en `/upload` el cuerpo es el archivo binario, con los metadatos en la URL y en los headers. HTTP ya separa los headers del body, así que nunca se mezclan.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 03 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 3044,
+          "character": 1
+        },
+        "end": {
+          "line": 3060,
+          "character": 200
+        }
+      },
+      "title": "Ajustes del servidor para archivos grandes",
+      "description": "## Qué hace cada línea\n- **L3050** `requestTimeout = 0` → Node corta por defecto cualquier pedido que dure **más de 5 minutos**. Un video de 500 MB puede tardar más, así que lo desactivamos.\n- **L3053** `timeout = 0` → tampoco cortamos por tiempo total.\n- **L3056** `headersTimeout = 60000` → los headers sí tienen que llegar en 60 s.\n- **L3059** `keepAliveTimeout = 5000` → la conexión queda abierta 5 s por si viene otro pedido.\n\nEn lugar de un límite total, cada transferencia tiene un **timeout de inactividad** de 20 s: si no llegan bytes en 20 s, está cortada (lo vemos en la guía 09).\n\n### 📖 Palabras técnicas\n- **Timeout**: tiempo máximo de espera antes de cancelar.\n- **Keep-alive**: reusar la misma conexión TCP para varios pedidos.\n\n### 🎤 Qué decirle al profe\n> \"Nos pasó que los videos grandes se cortaban a los 5 minutos por el `requestTimeout` de Node. Lo pusimos en 0 y lo reemplazamos por un timeout de inactividad.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 03 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

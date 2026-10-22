@@ -1,0 +1,37 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "08 · C2: Permisos en el celular",
+  "description": "Pregunta C2: qué pasa con la promesa si el usuario rechaza",
+  "steps": [
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2038,
+          "character": 1
+        },
+        "end": {
+          "line": 2047,
+          "character": 200
+        }
+      },
+      "title": "Pedir el permiso (una promesa)",
+      "description": "## Qué hace cada línea\n- **L2038–2040** solo para **fotos y videos** (`/^(image|video)\\//`), que van a la Galería.\n- **L2044–2047** ⭐ `await MediaLibrary.requestPermissionsAsync(true)`:\n  - Muestra el cartel de Android \"¿Permitir acceso a fotos y videos?\".\n  - Devuelve una **promesa** que se resuelve con `{ granted, canAskAgain, ... }`.\n  - `true` = **solo escritura**: podemos guardar, **no** ver las fotos del usuario.\n\n### ⭐ El detalle clave\nSi el usuario toca **Rechazar**, la promesa **NO falla** (no va al `catch`). Se resuelve normalmente con `granted: false`. Por eso preguntamos `if (!permission.granted)` y no usamos `catch`.\n\n### 📖 Palabras técnicas\n- **Permiso en tiempo de ejecución**: desde Android 6 los permisos sensibles se piden **mientras usás la app**, no al instalarla.\n- **Resolver / rechazar una promesa**: resolver = terminó bien (con un valor). Rechazar = error (va al `catch`).\n- **Principio de mínimo privilegio**: pedir solo el permiso que hace falta.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 08 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2048,
+          "character": 1
+        },
+        "end": {
+          "line": 2102,
+          "character": 200
+        }
+      },
+      "title": "Si rechaza: canAskAgain y Ajustes",
+      "description": "## Qué hace cada línea\n- **L2048–2050** si `!permission.granted` (rechazó)...\n- **`if (permission.canAskAgain)`** → **rechazó una vez**: Android todavía deja volver a preguntar.\n  - Alert que explica **para qué** es, con los botones \"Ahora no\" y **\"Volver a pedir\"** (que llama de nuevo a `saveToDevice`).\n- **`else`** → **rechazó para siempre** (\"No volver a preguntar\"): Android ya no muestra el cartel.\n  - Alert con **\"Abrir Ajustes\"** → `Linking.openSettings()` abre la pantalla de permisos de nuestra app.\n- `return` → no intenta guardar sin permiso. **No crashea.**\n\nAdemás, los archivos que **no** son fotos ni videos se guardan con el **selector de carpetas** (Storage Access Framework), que no necesita este permiso.\n\n### 📖 Palabras técnicas\n- **canAskAgain**: `false` cuando el usuario bloqueó el pedido. Ahí solo se puede activar desde Ajustes.\n- **Linking.openSettings()**: abre los ajustes de la app en el sistema.\n- **Storage Access Framework (SAF)**: el selector de carpetas de Android. El usuario elige y la app obtiene acceso **solo** a esa carpeta.\n\n### 🎤 Qué decirle al profe\n> \"La promesa se resuelve con `granted: false`, no falla. Si `canAskAgain` es true, explicamos para qué es y ofrecemos volver a pedir. Si es false, Android ya no lo muestra, así que mandamos a Ajustes con `Linking.openSettings`. En ningún caso se rompe.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 08 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

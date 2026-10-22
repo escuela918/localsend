@@ -1,0 +1,101 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "07 · C1: preload y contextBridge (IPC)",
+  "description": "Pregunta C1: por qué contextBridge y no fs en React",
+  "steps": [
+    {
+      "title": "Los dos procesos de Electron",
+      "description": "## 🧠 La idea\n\n```\n┌──────────────────────────┐     IPC      ┌─────────────────────────┐\n│ PROCESO MAIN (Node.js)   │ ◀──────────▶ │ RENDERER (Chromium)     │\n│ main.ts                  │              │ React (App.tsx)         │\n│ fs, dgram, http, dialog  │   preload.ts │ solo window.electronAPI │\n│ ✅ acceso total          │   (puente)   │ ❌ sin fs, sin Node     │\n└──────────────────────────┘              └─────────────────────────┘\n```\n\n### 📖 Palabras técnicas\n- **Proceso**: un programa corriendo, con su propia memoria.\n- **Main process**: el \"cerebro\" con Node.js. Hay **uno**.\n- **Renderer process**: cada ventana, que es un navegador Chromium. Ahí corre React.\n- **IPC (Inter-Process Communication)**: mensajes entre procesos.\n- **Preload**: script que corre **antes** que React, con un pie en cada mundo.\n- **Vite**: empaqueta React **para navegador**, donde `fs` no existe.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 3309,
+          "character": 1
+        },
+        "end": {
+          "line": 3323,
+          "character": 200
+        }
+      },
+      "title": "La configuración segura de la ventana",
+      "description": "## Qué hace cada línea\n- **L3311–3315** `preload: .../preload.mjs` → el puente.\n- **L3317–3318** ⭐ `contextIsolation: true` → el preload y React viven en **mundos JavaScript separados**. React no puede tocar las variables del preload ni de Electron.\n- **L3320–3321** ⭐ `nodeIntegration: false` → React **no** puede hacer `require('fs')`.\n\n### 📖 Palabras técnicas\n- **contextIsolation**: aislamiento de contexto. Separa el JavaScript de la página del de Electron.\n- **nodeIntegration**: si fuera `true`, la página tendría Node completo: disco, comandos, todo.\n- **XSS (Cross-Site Scripting)**: inyectar un script malicioso en una página. Si pasara con `nodeIntegration: true`, ese script podría borrar el disco.\n\n### 🎤 Qué decirle al profe\n> \"Tenemos `contextIsolation` en true y `nodeIntegration` en false, que es lo que recomienda Electron por seguridad.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/preload.ts",
+      "selection": {
+        "start": {
+          "line": 2,
+          "character": 1
+        },
+        "end": {
+          "line": 62,
+          "character": 200
+        }
+      },
+      "title": "preload.ts: el puente (contextBridge)",
+      "description": "## Qué hace cada línea\n- **L2–6** importa `ipcRenderer` (mandar mensajes al main), `contextBridge` (exponer funciones) y `webUtils`.\n- **L13–14** ⭐ `contextBridge.exposeInMainWorld('electronAPI', {...})` → crea `window.electronAPI` en React **solo con estas funciones**.\n- **L21–25** `getDeviceInfo` → `ipcRenderer.invoke('get-device-info')`: pregunta al main y devuelve una promesa.\n- **L36–42** `getFilePath(file)` → la ruta real de un archivo arrastrado (`webUtils` solo existe acá).\n- **L49–62** `sendFile(filePath, targetIP, targetPort)` → `invoke('send-file', ...)`.\n\n### 📖 Palabras técnicas\n- **contextBridge**: la forma **segura** de pasar funciones del preload a la página. Copia solo lo que elegís.\n- **exposeInMainWorld**: \"publicá esto en el `window` de la página\".\n- **ipcRenderer.invoke**: manda un mensaje al main **y espera la respuesta** (promesa).\n- **API**: conjunto de funciones que ofrecés para que otro código use.\n\n### 🎤 Qué decirle al profe\n> \"React vive en un navegador: `fs` no existe ahí, y aunque existiera sería inseguro. Con `contextBridge` exponemos solo funciones puntuales, como `sendFile`. React no sabe nada del disco: le pide al main por IPC y el main valida y hace el trabajo.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/preload.ts",
+      "selection": {
+        "start": {
+          "line": 69,
+          "character": 1
+        },
+        "end": {
+          "line": 90,
+          "character": 200
+        }
+      },
+      "title": "Eventos del main hacia React",
+      "description": "## Qué hace cada línea\n- **L69** `onDeviceFound(callback)` → React se suscribe.\n- **L76–88** `ipcRenderer.on('device-found', (_event, device) => callback(device))` → cuando el main manda `device-found`, se ejecuta la función de React.\n- **Fijate** que a React le pasamos **solo `device`**, no el `_event` (que tiene acceso interno de Electron).\n\n### 📖 Palabras técnicas\n- **invoke / handle**: React pregunta y el main responde (ida y vuelta).\n- **send / on**: el main avisa y React escucha (solo ida).\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/preload.ts",
+      "selection": {
+        "start": {
+          "line": 295,
+          "character": 1
+        },
+        "end": {
+          "line": 334,
+          "character": 200
+        }
+      },
+      "title": "Lista blanca de canales",
+      "description": "## Qué hace cada línea\n- **L300–319** `allowedChannels` → los únicos canales que React puede limpiar.\n- **L322–332** solo si el canal está en la lista, llama a `removeAllListeners`.\n\n### 📖 Palabras técnicas\n- **Lista blanca (whitelist)**: \"solo se permite lo que está en la lista\". Lo opuesto, la lista negra, prohíbe solo algunas cosas. La lista blanca es más segura.\n\n### 🎤 Qué decirle al profe\n> \"Hasta para limpiar listeners usamos una lista blanca: React no puede tocar canales internos de Electron.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/src/App.tsx",
+      "selection": {
+        "start": {
+          "line": 120,
+          "character": 1
+        },
+        "end": {
+          "line": 135,
+          "character": 200
+        }
+      },
+      "title": "Desde React se usa así",
+      "description": "## Qué hace\n- **L126** `await window.electronAPI.sendFile(selectedFile, device.ip, device.port)` → React **no toca el disco**: solo pide \"mandá este archivo a este celular\".\n- Si `result.ok` es false, muestra el error.\n\n### 🎤 Qué decirle al profe\n> \"Desde React solo llamamos a `window.electronAPI`. Es como una API web: React no sabe cómo se hace, solo lo pide.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 3121,
+          "character": 1
+        },
+        "end": {
+          "line": 3245,
+          "character": 200
+        }
+      },
+      "title": "El main atiende el pedido (ipcMain.handle)",
+      "description": "## Qué hace\n- `ipcMain.handle('send-file', async (_event, { filePath, targetIP }) => {...})` → recibe el pedido de React.\n- **Valida**: que haya datos, que el archivo exista (`existsSync`) y que sea un archivo (`stat.isFile()`).\n- Genera un `id` y lo pone en la **cola** `pendingByIP` para ese celular.\n- Avisa a React con `transfer-queued` (\"Esperando que el celular acepte...\").\n- Devuelve `{ ok: true }` o `{ ok: false, error }`.\n\n### 📖 Palabras técnicas\n- **ipcMain.handle**: registra quién responde a un `invoke`.\n- **Cola (queue)**: lista de cosas pendientes, en orden.\n- **Validar**: nunca confiar en lo que llega del renderer.\n\n### 🎤 Qué decirle al profe\n> \"El main valida todo lo que llega de React antes de tocar el disco. Si React estuviera comprometido, igual no podría leer cualquier archivo libremente.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 07 7\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

@@ -1,46 +1,86 @@
 
+// Traemos de Electron lo que necesitamos: app (la
+// aplicación), BrowserWindow (la ventana), dialog
+// (carteles), ipcMain (hablar con la pantalla) y
+// Notification (avisos de Windows).
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Notification,
 } from 'electron'
 
+// randomUUID genera códigos al azar imposibles de adivinar.
+// Los usamos como token (permiso de un solo uso).
+import {
+  randomUUID,
+} from 'node:crypto'
+
+// fileURLToPath convierte una dirección "file://..." en una
+// ruta normal de Windows.
 import {
   fileURLToPath,
 } from 'node:url'
 
+// path: armar rutas de carpetas sin preocuparse por las
+// barras / o \.
 import path from 'node:path'
+// dgram: mandar y recibir mensajes UDP (para encontrar
+// dispositivos).
 import dgram from 'node:dgram'
+// http: crear el servidor por donde viajan los archivos.
 import http from 'node:http'
+// fs (file system): leer, escribir, renombrar y borrar
+// archivos del disco.
 import fs from 'node:fs'
+// os: datos de la computadora (nombre, carpeta del usuario,
+// placas de red).
 import os from 'node:os'
 
 
 // ============================================================
-// PATHS
+// RUTAS DE LA APP
 // ============================================================
+//
+// Acá calculamos en qué carpeta está la app y de dónde se
+// carga la pantalla (React).
+// En desarrollo (npm run dev) la pantalla viene de Vite
+// (VITE_DEV_SERVER_URL). En el .exe viene de la carpeta
+// "dist".
 
+// __dirname = carpeta donde está este archivo. En los
+// módulos modernos (ESM) no existe, así que la calculamos
+// desde la URL del archivo (import.meta.url).
 const __dirname =
   path.dirname(
     fileURLToPath(import.meta.url)
   )
 
+// APP_ROOT = carpeta raíz de la app (una arriba de esta).
+// La guardamos en las variables de entorno para usarla
+// desde cualquier lado.
 process.env.APP_ROOT =
   path.join(
     __dirname,
     '..'
   )
 
+// Dirección del servidor de Vite. Solo existe cuando corrés
+// "npm run dev"; en el .exe está vacía.
 export const VITE_DEV_SERVER_URL =
   process.env['VITE_DEV_SERVER_URL']
 
+// Carpeta "dist" donde queda la pantalla ya compilada (la
+// que usa el .exe).
 export const RENDERER_DIST =
   path.join(
     process.env.APP_ROOT!,
     'dist'
   )
 
+// Carpeta de archivos públicos (íconos, imágenes): en
+// desarrollo es "public" y en el .exe es "dist".
 process.env.VITE_PUBLIC =
   VITE_DEV_SERVER_URL
     ? path.join(
@@ -51,51 +91,86 @@ process.env.VITE_PUBLIC =
 
 
 // ============================================================
-// CONFIG
+// CONFIGURACIÓN (números que usa toda la app)
 // ============================================================
 
-const UDP_PORT =
+// Puerto por donde los dispositivos se "gritan" para
+// encontrarse (UDP). Es el mismo número que usa el
+// LocalSend original.
+const PUERTO_UDP =
   53317
 
-const WS_PORT =
+// Puerto por donde viajan los archivos. Usamos HTTP (y no
+// WebSocket) porque HTTP ya trae dos cosas que necesitamos:
+// - Content-Length: el tamaño total, para comprobar que
+//   el archivo llegó completo.
+// - Range: pedir "mandame desde el byte X", para reanudar
+//   una descarga cortada.
+const PUERTO_HTTP =
   53318
 
-const DEVICE_ALIAS =
+// Nombre con el que la PC aparece en el celular. Ej:
+// "Desktop-MI-PC".
+const NOMBRE_DE_LA_PC =
   `Desktop-${os.hostname()}`
 
-const DOWNLOAD_DIR =
+// Carpeta donde se guardan los archivos que llegan:
+// Descargas/LocalSend (dentro de tu usuario).
+const CARPETA_DESCARGAS =
   path.join(
     os.homedir(),
     'Downloads',
     'LocalSend'
   )
 
-// Si un celular no da señales en este tiempo,
-// lo sacamos de la lista (TTL).
-const STALE_MS =
+// Si un celular pasa 5 segundos sin dar señales de vida, lo
+// sacamos de la lista (se apagó, se fue del Wi-Fi, etc.).
+const TIEMPO_SIN_SENALES =
   5000
 
-// Cada cuánto anunciamos la PC por UDP.
-// 1 s garantiza aparecer en menos de 5 s.
-const BEACON_INTERVAL =
+// Cada cuánto la PC avisa "acá estoy" a toda la red. Cada 1
+// segundo: así el celular nos encuentra en menos de 5 s
+// aunque se pierda algún aviso.
+const CADA_CUANTO_AVISAR =
   1000
 
-// Si una transferencia no avanza en este tiempo,
-// asumimos que se cortó la conexión (ej: se apagó el Wi-Fi).
-const INACTIVITY_TIMEOUT =
+// Si durante 20 segundos no pasa ni un byte, damos la
+// transferencia por cortada (por ejemplo, alguien apagó el
+// Wi-Fi).
+const TIEMPO_SIN_ACTIVIDAD =
   20000
 
-// Cada cuánto mandamos el progreso a React.
-// Mandarlo en cada chunk satura el IPC y congela la UI.
-const PROGRESS_INTERVAL =
+// Cada cuánto actualizamos la barra de progreso en la
+// pantalla (200 ms = 5 veces por segundo). Si la
+// actualizáramos con cada pedacito del archivo serían miles
+// de veces por segundo y la pantalla se trabaría.
+const CADA_CUANTO_PROGRESO =
   200
 
+// Tiempo que tiene el usuario de la PC para tocar Aceptar o
+// Rechazar. Si no toca nada en 60 segundos, cuenta como
+// rechazado.
+const TIEMPO_PARA_ACEPTAR =
+  60000
+
+// Después de tocar Aceptar, el celular tiene 2 minutos para
+// empezar a mandar el archivo con su "permiso" (token).
+// Pasado ese tiempo, el permiso vence.
+const DURACION_DEL_PERMISO =
+  2 * 60 * 1000
+
 
 // ============================================================
-// WINDOW
+// VENTANA
 // ============================================================
+//
+// La ventana de la app. Empieza en null (vacía) porque se
+// crea recién cuando Electron está listo (ver crearVentana
+// más abajo).
 
-let win:
+// ventana = la ventana de la app. Empieza en null (vacía)
+// porque se crea recién cuando Electron está listo.
+let ventana:
   BrowserWindow | null =
   null
 
@@ -103,26 +178,42 @@ let win:
 // ============================================================
 // SERVIDORES
 // ============================================================
+//
+// Guardamos los dos servidores y los dos relojes
+// (setInterval) en variables para poder apagarlos cuando se
+// cierra la app.
+// - servidorUDP: busca dispositivos en la red.
+// - servidorHTTP: recibe y manda archivos.
+// - relojDeLimpieza: cada 1 s borra celulares que se fueron.
+// - relojDeAviso: cada 1 s avisa "acá estoy".
 
-let udpServer:
+// Servidor UDP: busca dispositivos en la red. null =
+// todavía no arrancó.
+let servidorUDP:
   dgram.Socket | null =
   null
 
-let httpServer:
+// Servidor HTTP: recibe y manda archivos.
+let servidorHTTP:
   http.Server | null =
   null
 
-let cleanupTimer:
+// Reloj que cada 1 s borra los celulares que se fueron.
+let relojDeLimpieza:
   NodeJS.Timeout | null =
   null
 
-let beaconTimer:
+// Reloj que cada 1 s le avisa a la red "acá estoy".
+let relojDeAviso:
   NodeJS.Timeout | null =
   null
 
-// Guardamos el estado para mandarlo cuando React
-// termine de cargar (si no, el LED quedaba en rojo).
-const serverStatus =
+// Anotamos si cada servidor ya arrancó (udp = buscar
+// dispositivos, tcp = archivos). Los servidores pueden
+// arrancar ANTES de que la pantalla termine de cargar;
+// cuando carga, le mandamos este estado y el LED se pone
+// verde.
+const estadoServidores =
   {
     udp:
       false,
@@ -132,17 +223,24 @@ const serverStatus =
 
 
 // ============================================================
-// CREAR CARPETA
+// CREAR CARPETA DE DESCARGAS
 // ============================================================
+//
+// Si la carpeta Descargas/LocalSend no existe, la creamos.
+// recursive: true crea también las carpetas de arriba si
+// faltan.
 
+// Si la carpeta Descargas/LocalSend NO existe...
 if (
   !fs.existsSync(
-    DOWNLOAD_DIR
+    CARPETA_DESCARGAS
   )
 ) {
 
+  // ...la creamos. recursive: true crea también las
+  // carpetas de arriba si faltan.
   fs.mkdirSync(
-    DOWNLOAD_DIR,
+    CARPETA_DESCARGAS,
     {
       recursive:
         true,
@@ -153,52 +251,72 @@ if (
 
 
 // ============================================================
-// DISPOSITIVOS
+// DISPOSITIVOS (celulares encontrados)
 // ============================================================
+//
+// Lista de celulares encontrados. Usamos un Map (como un
+// diccionario) con la IP como clave: si el mismo celular
+// avisa 100 veces, sigue habiendo una sola entrada que se
+// actualiza. Nunca hay repetidos.
 
-interface MobileDevice {
+// Ficha de cada celular encontrado:
+interface Celular {
 
+  // Nombre del celular (ej: Galaxy A54)
   alias: string
 
+  // Su IP en la red
   ip: string
 
+  // Puerto donde escucha
   port: number
 
+  // Tipo: siempre "mobile" (celular)
   deviceType: 'mobile'
 
+  // Hora (en milisegundos) de la última vez que dio señales
+  // de vida
   lastSeen: number
 
 }
 
-const mobileDevices =
+// Lista de celulares encontrados. Map = diccionario con la
+// IP como clave: si el mismo celular avisa 100 veces, sigue
+// habiendo una sola entrada.
+const celulares =
   new Map<
     string,
-    MobileDevice
+    Celular
   >()
 
-// IPs con una transferencia en curso.
-// Mientras se transfiere, el Wi-Fi está saturado y los
-// latidos pueden atrasarse: NO hay que borrar ese
-// dispositivo de la lista por eso.
-const activeTransferIPs =
+// Celulares en medio de una transferencia (IP → cuántas
+// tiene abiertas). Mientras se pasa un archivo el Wi-Fi va
+// lleno y los avisos de "sigo vivo" pueden llegar tarde: a
+// estos NO los borramos de la lista.
+const celularesTransfiriendo =
   new Map<
     string,
     number
   >()
 
-function markSeen(
+// Anota que un celular dio señales de vida justo ahora.
+function marcarComoVisto(
   ip: string
 ) {
 
+  // Buscamos el celular por su IP en la lista.
   const device =
-    mobileDevices.get(
+    celulares.get(
       ip
     )
 
+  // Si está en la lista...
   if (
     device
   ) {
 
+    // ...actualizamos su "última vez visto" a ahora
+    // (Date.now() = hora actual en milisegundos).
     device.lastSeen =
       Date.now()
 
@@ -208,38 +326,327 @@ function markSeen(
 
 
 // ============================================================
-// ARCHIVOS PENDIENTES
+// ARCHIVOS PENDIENTES (cola PC → celular)
 // ============================================================
+//
+// Archivos que la PC quiere mandarle a un celular. El
+// celular no tiene servidor, así que la PC no le puede
+// "empujar" el archivo: lo deja anotado acá, en una cola
+// por IP.
+// El celular pregunta cada segundo "¿hay algo para mí?"
+// (/incoming) y, cuando ve algo, lo descarga
+// (/download/<id>).
 
-interface PendingFile {
+// Ficha de un archivo que espera ser descargado por el
+// celular:
+interface ArchivoPendiente {
 
+  // Código único para pedirlo (/download/<id>)
   id: string
 
+  // Dónde está el archivo en la PC
   filePath: string
 
+  // Nombre del archivo
   fileName: string
 
+  // Tamaño en bytes
   fileSize: number
 
 }
 
-const pendingByIP =
+// Cola de archivos por celular: IP → lista de archivos que
+// tiene para descargar.
+const colaPorCelular =
   new Map<
     string,
-    PendingFile[]
+    ArchivoPendiente[]
   >()
+
+
+// ============================================================
+// SUBIDAS ACEPTADAS (HANDSHAKE)
+// ============================================================
+//
+// Handshake = "apretón de manos": antes de mandar el
+// archivo, el celular pregunta si lo queremos.
+// Cuando el usuario toca Aceptar, generamos un token: un
+// código secreto que sirve UNA sola vez, como una entrada
+// de cine. /upload solo guarda el archivo si el celular
+// trae una entrada válida, de su misma IP y sin vencer. Así
+// nadie puede mandar archivos sin pasar por el cartel de
+// Aceptar.
+
+// Ficha de un permiso (token) entregado:
+interface PermisoDeSubida {
+
+  // IP del celular que lo recibió (solo él lo puede usar)
+  ip: string
+
+  // Nombre del archivo que se aceptó
+  fileName: string
+
+  // Hora en que vence el permiso
+  expiresAt: number
+
+}
+
+// Permisos entregados: token → ficha. Map para encontrarlos
+// rápido por el token.
+const permisosEntregados =
+  new Map<
+    string,
+    PermisoDeSubida
+  >()
+
+
+// ============================================================
+// DIÁLOGO DE ACEPTACIÓN
+// ============================================================
+//
+// Muestra el cartel "X quiere enviarte un archivo" con
+// Aceptar / Rechazar.
+// Devuelve una Promesa: es como decir "te contesto cuando
+// el usuario toque un botón". El servidor hace await de
+// esta promesa, así que el envío queda FRENADO acá hasta
+// que el usuario responde.
+// Respuestas posibles:
+// - accepted: aceptó.
+// - rejected: rechazó.
+// - timeout: no tocó nada en 60 s.
+// - cancelled: el celular se desconectó mientras
+//   esperábamos.
+
+// Las 4 respuestas posibles del cartel: aceptó, rechazó, se
+// acabó el tiempo o el celular se desconectó.
+type RespuestaDelCartel =
+  'accepted' | 'rejected' | 'timeout' | 'cancelled'
+
+// Muestra el cartel y espera la respuesta. async = puede
+// esperar (await) sin congelar la app. Devuelve una
+// Promesa: "te contesto cuando el usuario toque un botón".
+async function preguntarSiAcepta(
+  // Nombre del archivo que quieren mandar
+  fileName: string,
+  // Tamaño en bytes
+  fileSize: number,
+  // Nombre del celular que lo manda
+  nombreDelQueEnvia: string,
+  // "Alarma" que suena si el celular se desconecta mientras
+  // el cartel está abierto
+  alarmaDeCancelacion: AbortSignal
+): Promise<RespuestaDelCartel> {
+
+  // Si la ventana existe, la traemos al frente para que el
+  // usuario vea el pedido:
+  if (
+    ventana
+  ) {
+
+    // Si está minimizada...
+    if (
+      ventana.isMinimized()
+    ) {
+      // ...la volvemos a abrir.
+      ventana.restore()
+    }
+
+    // La mostramos.
+    ventana.show()
+
+    // La ponemos adelante de todas las ventanas.
+    ventana.focus()
+
+    // Hacemos parpadear su ícono en la barra de tareas para
+    // llamar la atención.
+    ventana.flashFrame(
+      true
+    )
+
+  }
+
+  // Notificación de Windows (abajo a la derecha) con el
+  // archivo y quién lo manda. Va en try/catch porque si las
+  // notificaciones están desactivadas no queremos que se
+  // rompa nada.
+  try {
+
+    new Notification({
+      title:
+        '📥 Archivo entrante',
+      body:
+        `${nombreDelQueEnvia} quiere enviarte "${fileName}"`,
+    }).show()
+
+  } catch {}
+
+  // AbortController = un "botón de cancelar" que podemos
+  // apretar desde el código para cerrar el cartel solo.
+  const cancelador =
+    new AbortController()
+
+  // Motivo por el que se cerró el cartel. Si nadie lo
+  // cambia: rechazado.
+  let reason: RespuestaDelCartel =
+    'rejected'
+
+  // Reloj de 60 s: si se cumple, anotamos "timeout" y
+  // cerramos el cartel.
+  const reloj =
+    setTimeout(
+      () => {
+        reason = 'timeout'
+        cancelador.abort()
+      },
+      TIEMPO_PARA_ACEPTAR
+    )
+
+  // Qué hacer si el celular se desconecta: anotamos
+  // "cancelled" y cerramos el cartel.
+  const alCancelar =
+    () => {
+      reason = 'cancelled'
+      cancelador.abort()
+    }
+
+  // Conectamos la "alarma" de desconexión con alCancelar.
+  alarmaDeCancelacion.addEventListener(
+    'abort',
+    alCancelar
+  )
+
+  // Cómo es el cartel:
+  const options: Electron.MessageBoxOptions =
+    {
+      // Ícono de pregunta
+      type:
+        'question',
+      // Título de la ventanita
+      title:
+        'Archivo entrante',
+      // Texto principal
+      message:
+        `${nombreDelQueEnvia} quiere enviarte un archivo`,
+      // Texto chico: nombre, tamaño y dónde se va a guardar
+      detail:
+        `${fileName}\n${formatearTamano(fileSize)}\n\nSe guardará en ${CARPETA_DESCARGAS}`,
+      // Botones: el 0 es Aceptar y el 1 es Rechazar
+      buttons: [
+        'Aceptar',
+        'Rechazar',
+      ],
+      // Botón marcado por defecto (Enter = Aceptar)
+      defaultId:
+        0,
+      // Botón que cuenta si cierran con Esc o la X
+      // (Rechazar)
+      cancelId:
+        1,
+      // Mostrar los botones como botones normales (en
+      // Windows)
+      noLink:
+        true,
+      // Conecta el cartel con el "botón de cancelar" para
+      // cerrarlo desde el código
+      signal:
+        cancelador.signal,
+    }
+
+  try {
+
+    // Mostramos el cartel y ESPERAMOS (await) a que se
+    // cierre. response = número del botón tocado. Si la
+    // ventana existe, el cartel aparece pegado a ella.
+    const { response } =
+      ventana
+        ? await dialog.showMessageBox(ventana, options)
+        : await dialog.showMessageBox(options)
+
+    // Si el cartel se cerró solo (por tiempo o
+    // desconexión), devolvemos ese motivo.
+    if (
+      cancelador.signal.aborted
+    ) {
+      return reason
+    }
+
+    // Si tocó el botón 0 (Aceptar) → "accepted"; si no →
+    // "rejected".
+    return response === 0
+      ? 'accepted'
+      : 'rejected'
+
+  } finally {
+  // finally = se ejecuta SIEMPRE al terminar, pase lo que
+  // pase. Limpiamos:
+
+    // Apagamos el reloj de 60 s
+    clearTimeout(
+      reloj
+    )
+
+    // Desconectamos la alarma
+    alarmaDeCancelacion.removeEventListener(
+      'abort',
+      alCancelar
+    )
+
+    // Dejamos de hacer parpadear el ícono (ventana?. = solo si
+    // la ventana existe)
+    ventana?.flashFrame(
+      false
+    )
+
+  }
+
+}
+
+// Convierte bytes a texto fácil de leer. Ej: 1536 → "1.5
+// KB".
+function formatearTamano(
+  bytes: number
+): string {
+
+  // Si es 0, devolvemos "0 B".
+  if (
+    !bytes
+  ) {
+    return '0 B'
+  }
+
+  // Unidades posibles
+  const units =
+    ['B', 'KB', 'MB', 'GB', 'TB']
+
+  // Cuántas veces hay que dividir por 1024 (con logaritmo).
+  // Math.min evita pasarse de TB.
+  const i =
+    Math.min(
+      units.length - 1,
+      Math.floor(Math.log(bytes) / Math.log(1024))
+    )
+
+  // Dividimos y dejamos 1 decimal (ninguno si son bytes).
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+
+}
 
 
 // ============================================================
 // IP LOCAL
 // ============================================================
+//
+// Averigua la IP de esta PC en la red (ej: 192.168.0.10),
+// que es la que el celular necesita para conectarse.
 
-// Adaptadores virtuales (VirtualBox, Hyper-V, WSL, VPN...)
-// que no son la red Wi-Fi/Ethernet real.
-const VIRTUAL_ADAPTER =
+// Nombres de placas de red "de mentira" (VirtualBox, WSL,
+// Docker, VPN...). No son tu Wi-Fi real. La /i del final =
+// no importan mayúsculas o minúsculas.
+const PLACA_VIRTUAL =
   /virtual|vmware|vbox|hyper-v|vethernet|wsl|docker|loopback|tailscale|zerotier|hamachi/i
 
-interface LocalInterface {
+// Ficha de una placa de red: nombre, IP y máscara.
+interface PlacaDeRed {
 
   name: string
 
@@ -249,11 +656,17 @@ interface LocalInterface {
 
 }
 
-function getLocalInterfaces(): LocalInterface[] {
+// Devuelve las placas de red que sirven (IPv4 y no
+// internas), con las reales primero.
+function obtenerPlacasDeRed(): PlacaDeRed[] {
 
-  const result: LocalInterface[] =
+  // Lista donde vamos juntando las placas que sirven.
+  const result: PlacaDeRed[] =
     []
 
+  // Recorremos cada placa de red de la PC
+  // (os.networkInterfaces()). Cada placa puede tener varias
+  // direcciones.
   for (
     const [
       name,
@@ -263,16 +676,21 @@ function getLocalInterfaces(): LocalInterface[] {
     )
   ) {
 
+    // Recorremos cada dirección de esa placa.
     for (
       const info of
         infos ?? []
     ) {
 
+      // Nos quedamos con las IPv4 (formato 192.168.x.x) que
+      // no sean internas (127.0.0.1 solo sirve para que la
+      // PC se hable a sí misma).
       if (
         info.family === 'IPv4' &&
         !info.internal
       ) {
 
+        // La agregamos a la lista.
         result.push({
           name,
           address:
@@ -287,18 +705,24 @@ function getLocalInterfaces(): LocalInterface[] {
 
   }
 
-  // Primero los adaptadores reales.
+  // Ordenamos: primero las placas reales y al final las
+  // virtuales. test() da true/false y Number() lo pasa a
+  // 1/0 para ordenar.
   return result.sort(
     (a, b) =>
-      Number(VIRTUAL_ADAPTER.test(a.name)) -
-      Number(VIRTUAL_ADAPTER.test(b.name))
+      Number(PLACA_VIRTUAL.test(a.name)) -
+      Number(PLACA_VIRTUAL.test(b.name))
   )
 
 }
 
-function getLocalIP(): string {
+// La IP principal de la PC = la primera de la lista (la
+// real).
+function obtenerMiIP(): string {
 
-  return getLocalInterfaces()[0]?.address ??
+  // Si no hay ninguna red (?? = "si no hay"), devolvemos
+  // 127.0.0.1.
+  return obtenerPlacasDeRed()[0]?.address ??
     '127.0.0.1'
 
 }
@@ -308,33 +732,48 @@ function getLocalIP(): string {
 // DIRECCIONES DE BROADCAST
 // ============================================================
 //
-// En Windows, 255.255.255.255 a veces sale solo por un
-// adaptador (por ejemplo el de VirtualBox) y el celular
-// nunca recibe el beacon. Por eso también mandamos al
-// broadcast de cada red: IP | ~máscara (ej: 192.168.0.255).
+// Broadcast = mandar un mensaje a TODOS los equipos de la
+// red a la vez, como hablar por un megáfono.
+// La dirección general es 255.255.255.255, pero en Windows
+// a veces ese mensaje sale solo por una placa virtual (ej:
+// VirtualBox) y el celular nunca lo escucha. Por eso
+// también mandamos al "megáfono" propio de cada red. Se
+// calcula con la IP y la máscara: 192.168.0.10 con máscara
+// 255.255.255.0 → 192.168.0.255.
 
-function getBroadcastAddresses(): string[] {
+// Devuelve las direcciones de "megáfono" (broadcast) a las
+// que mandamos el aviso.
+function obtenerDireccionesBroadcast(): string[] {
 
+  // Set = lista sin repetidos. Empieza con el megáfono
+  // general 255.255.255.255.
   const addresses =
     new Set<string>([
       '255.255.255.255',
     ])
 
+  // Para cada placa de red...
   for (
     const iface of
-      getLocalInterfaces()
+      obtenerPlacasDeRed()
   ) {
 
+    // Partimos la IP en sus 4 números: "192.168.0.10" →
+    // [192, 168, 0, 10].
     const ip =
       iface.address
         .split('.')
         .map(Number)
 
+    // Lo mismo con la máscara: [255, 255, 255, 0].
     const mask =
       iface.netmask
         .split('.')
         .map(Number)
 
+    // Calculamos el broadcast de esa red: cada número de la
+    // IP | (OR) lo contrario de la máscara (~). Resultado:
+    // 192.168.0.255.
     addresses.add(
       ip.map(
         (part, i) =>
@@ -344,6 +783,7 @@ function getBroadcastAddresses(): string[] {
 
   }
 
+  // Convertimos el Set en una lista normal.
   return [...addresses]
 
 }
@@ -353,76 +793,113 @@ function getBroadcastAddresses(): string[] {
 // REPORTE DE PROGRESO
 // ============================================================
 //
-// Calcula porcentaje, velocidad (MB/s) y tiempo restante,
-// y se lo manda a React como máximo cada PROGRESS_INTERVAL ms.
+// Crea un "reportero" para UNA transferencia. Tiene tres
+// funciones:
+// - update(): se llama con cada pedacito que entra o
+//   sale; calcula %, velocidad (MB/s) y tiempo restante.
+// - complete(): la transferencia terminó bien.
+// - fail(): se cortó; avisa el motivo SIN borrar en qué %
+//   quedó.
+// A la pantalla (React) le manda datos como mucho cada 200
+// ms.
 
-type Direction =
+// Sentido de la transferencia: "receive" (celular → PC) o
+// "send" (PC → celular).
+type Sentido =
   'receive' | 'send'
 
-function createProgressReporter(
-  direction: Direction,
+// Crea un "reportero" para UNA transferencia. Devuelve tres
+// funciones: update, complete y fail.
+function crearReportero(
+  // Sentido
+  direction: Sentido,
+  // Nombre del archivo
   fileName: string,
+  // Tamaño total en bytes
   total: number,
+  // IP del celular
   peer: string,
-  // Si se reanuda, la barra arranca desde acá (no desde 0).
+  // Si es una descarga reanudada, desde qué byte arranca
+  // (si no, 0)
   initialBytes = 0
 ) {
 
-  const startedAt =
+  // Hora en que empezó (para calcular la velocidad
+  // promedio).
+  const horaDeInicio =
     Date.now()
 
-  activeTransferIPs.set(
+  // Marcamos al celular como "ocupado transfiriendo" (le
+  // sumamos 1) para que no lo borren de la lista. ?? 0 = si
+  // no tenía ninguna, cuenta desde 0.
+  celularesTransfiriendo.set(
     peer,
-    (activeTransferIPs.get(peer) ?? 0) + 1
+    (celularesTransfiriendo.get(peer) ?? 0) + 1
   )
 
-  let ended =
+  // ¿Ya se ejecutó end()? (para no hacerlo dos veces)
+  let yaTermino =
     false
 
+  // end(): desmarca al celular como ocupado cuando la
+  // transferencia termina (bien o mal).
   const end =
     () => {
 
+      // Si ya se ejecutó, no hacemos nada.
       if (
-        ended
+        yaTermino
       ) {
         return
       }
 
-      ended =
+      // Lo marcamos como ejecutado.
+      yaTermino =
         true
 
+      // Le restamos 1 a sus transferencias abiertas.
       const count =
-        (activeTransferIPs.get(peer) ?? 1) - 1
+        (celularesTransfiriendo.get(peer) ?? 1) - 1
 
+      // Si no le quedan, lo sacamos de la lista de
+      // ocupados; si le quedan, guardamos el número nuevo.
       if (
         count <= 0
       ) {
-        activeTransferIPs.delete(peer)
+        celularesTransfiriendo.delete(peer)
       } else {
-        activeTransferIPs.set(peer, count)
+        celularesTransfiriendo.set(peer, count)
       }
 
-      markSeen(
+      // Lo damos por visto ahora, para que no lo borren
+      // justo al terminar.
+      marcarComoVisto(
         peer
       )
 
     }
 
-  let lastEmit =
+  // Última vez que le mandamos el progreso a la pantalla.
+  let ultimoAviso =
     0
 
-  let lastBytes =
+  // Bytes que llevábamos en la medición anterior.
+  let bytesAnteriores =
     initialBytes
 
-  let lastTime =
-    startedAt
+  // Hora de la medición anterior.
+  let horaAnterior =
+    horaDeInicio
 
+  // Velocidad actual en bytes por segundo.
   let speed =
     0
 
+  // Bytes transferidos hasta ahora.
   let bytes =
     initialBytes
 
+  // Arma el paquete de datos que le mandamos a la pantalla.
   const payload =
     () => ({
       direction,
@@ -430,80 +907,107 @@ function createProgressReporter(
       peer,
       total,
       bytes,
+      // Porcentaje: bytes / total × 100, redondeado para
+      // abajo y sin pasar de 100.
       progress:
         total > 0
           ? Math.min(100, Math.floor((bytes / total) * 100))
           : 0,
-      // Bytes por segundo
+      // Velocidad en bytes por segundo
       speed,
-      // Segundos restantes
+      // ETA = segundos que faltan = lo que falta /
+      // velocidad. null si todavía no hay velocidad.
       eta:
         speed > 0 && total > 0
           ? Math.max(0, Math.round((total - bytes) / speed))
           : null,
     })
 
+  // Devolvemos las tres funciones del reportero.
   return {
 
+    // update(): se llama con cada pedacito (chunk) del
+    // archivo.
     update(
       currentBytes: number
     ) {
 
+      // Guardamos cuántos bytes van.
       bytes =
         currentBytes
 
+      // Hora actual.
       const now =
         Date.now()
 
+      // Si pasaron menos de 200 ms desde el último aviso,
+      // no mandamos nada (si no, se traba la pantalla).
       if (
-        now - lastEmit <
-        PROGRESS_INTERVAL
+        now - ultimoAviso <
+        CADA_CUANTO_PROGRESO
       ) {
         return
       }
 
-      // Promedio móvil para que la velocidad no salte.
-      const instant =
-        ((bytes - lastBytes) * 1000) /
-        Math.max(1, now - lastTime)
+      // Velocidad de este momento = bytes nuevos / tiempo
+      // pasado (× 1000 porque el tiempo está en
+      // milisegundos). Math.max(1, ...) evita dividir por
+      // 0.
+      const velocidadDelMomento =
+        ((bytes - bytesAnteriores) * 1000) /
+        Math.max(1, now - horaAnterior)
 
+      // Velocidad "suavizada": 70 % la anterior + 30 % la
+      // nueva, para que el número no salte. En la primera
+      // medición usamos la del momento.
       speed =
         speed === 0
-          ? instant
-          : speed * 0.7 + instant * 0.3
+          ? velocidadDelMomento
+          : speed * 0.7 + velocidadDelMomento * 0.3
 
-      lastBytes =
+      // Guardamos esta medición para la próxima.
+      bytesAnteriores =
         bytes
 
-      lastTime =
+      horaAnterior =
         now
 
-      lastEmit =
+      ultimoAviso =
         now
 
-      win?.webContents.send(
+      // Le mandamos el progreso a la pantalla por el canal
+      // "transfer-progress".
+      ventana?.webContents.send(
         'transfer-progress',
         payload()
       )
 
     },
 
+    // complete(): la transferencia terminó bien.
     complete(
       finalBytes: number
     ) {
 
+      // Desmarcamos al celular como ocupado.
       end()
 
+      // Bytes finales.
       bytes =
         finalBytes
 
+      // Cuántos segundos duró (mínimo 0.001 para no dividir
+      // por 0).
       const seconds =
-        Math.max(0.001, (Date.now() - startedAt) / 1000)
+        Math.max(0.001, (Date.now() - horaDeInicio) / 1000)
 
+      // Velocidad promedio de toda la transferencia.
       speed =
         (finalBytes - initialBytes) / seconds
 
-      win?.webContents.send(
+      // Avisamos a la pantalla por "transfer-complete" con
+      // 100 %.
+      ventana?.webContents.send(
         'transfer-complete',
         {
           ...payload(),
@@ -516,16 +1020,20 @@ function createProgressReporter(
 
     },
 
-    // El progreso NO se pierde: React recibe en qué
-    // porcentaje quedó y el motivo del error.
+    // fail(): se cortó. Avisa el motivo y en qué % quedó;
+    // la barra NO se borra. canRetry = si se puede
+    // reintentar.
     fail(
       message: string,
       canRetry: boolean
     ) {
 
+      // Desmarcamos al celular como ocupado.
       end()
 
-      win?.webContents.send(
+      // Avisamos a la pantalla por "transfer-error" con el
+      // motivo (velocidad 0 y sin tiempo restante).
+      ventana?.webContents.send(
         'transfer-error',
         {
           ...payload(),
@@ -536,6 +1044,8 @@ function createProgressReporter(
         }
       )
 
+      // Notificación de Windows: "Transferencia
+      // interrumpida".
       try {
 
         new Notification({
@@ -557,21 +1067,33 @@ function createProgressReporter(
 // ============================================================
 // LIMPIAR DISPOSITIVOS VIEJOS
 // ============================================================
+//
+// Corre cada 1 segundo. Borra de la lista a los celulares
+// que hace más de 5 s no dan señales y se lo avisa a la
+// pantalla ("device-removed").
+// Gracias a esto, si apagás el Wi-Fi del celular desaparece
+// de la lista, y cuando lo prendés vuelve a aparecer solo.
 
-function cleanupStale() {
+// Se ejecuta cada 1 s: borra los celulares que hace más de
+// 5 s no dan señales.
+function borrarCelularesInactivos() {
 
+  // Hora actual.
   const now =
     Date.now()
 
+  // Recorremos todos los celulares de la lista.
   for (
     const [
       ip,
       device
-    ] of mobileDevices
+    ] of celulares
   ) {
 
+    // Si está transfiriendo no lo borramos: lo damos por
+    // visto ahora y pasamos al siguiente (continue).
     if (
-      activeTransferIPs.has(
+      celularesTransfiriendo.has(
         ip
       )
     ) {
@@ -583,23 +1105,28 @@ function cleanupStale() {
 
     }
 
+    // Si pasaron más de 5 s desde su última señal...
     if (
       now -
       device.lastSeen >
-      STALE_MS
+      TIEMPO_SIN_SENALES
     ) {
 
+      // ...lo anotamos en la consola,
       console.log(
         '📴 Dispositivo desconectado:',
         device.alias,
         ip
       )
 
-      mobileDevices.delete(
+      // lo sacamos de la lista
+      celulares.delete(
         ip
       )
 
-      win?.webContents.send(
+      // y le avisamos a la pantalla ("device-removed") para
+      // que desaparezca.
+      ventana?.webContents.send(
         'device-removed',
         device
       )
@@ -612,31 +1139,49 @@ function cleanupStale() {
 
 
 // ============================================================
-// UDP DISCOVERY
+// DESCUBRIMIENTO POR UDP (encontrar celulares)
 // ============================================================
+//
+// UDP es un protocolo "rápido y sin garantías": manda
+// mensajes cortos sin conectarse antes, y alguno se puede
+// perder. Es ideal para gritar "acá estoy" a toda la red.
+// (Para los archivos usamos HTTP/TCP, que sí garantiza que
+// llegue todo y en orden.)
+// Esta función hace dos cosas:
+// 1) ESCUCHA en el puerto 53317 los avisos de los
+//    celulares.
+// 2) Cada 1 s MANDA el aviso de la PC (beacon).
 
-function startUDPServer() {
+// Arranca el servidor UDP: escucha los avisos de los
+// celulares y manda los de la PC.
+function iniciarServidorUDP() {
 
+  // Si ya está prendido, no lo prendemos otra vez.
   if (
-    udpServer
+    servidorUDP
   ) {
 
     return
 
   }
 
-  udpServer =
+  // Creamos el "enchufe" (socket) UDP.
+  servidorUDP =
     dgram.createSocket({
+      // udp4 = usamos direcciones IPv4
       type:
         'udp4',
-      // Permite reabrir la app sin esperar a que
-      // Windows libere el puerto.
+      // Si cerrás y abrís la app enseguida, Windows a veces
+      // sigue teniendo el puerto "ocupado". Con esto lo
+      // podemos usar igual.
       reuseAddr:
         true,
     })
 
 
-  udpServer.on(
+  // Si hay un error en UDP, lo mostramos en la consola (la
+  // app sigue andando).
+  servidorUDP.on(
     'error',
     error => {
 
@@ -649,7 +1194,9 @@ function startUDPServer() {
   )
 
 
-  udpServer.on(
+  // Se ejecuta cada vez que llega un mensaje UDP. msg = el
+  // contenido, rinfo = quién lo mandó (su IP).
+  servidorUDP.on(
     'message',
     (
       msg,
@@ -658,14 +1205,20 @@ function startUDPServer() {
 
       try {
 
+        // Convertimos el mensaje (bytes) a texto, y el
+        // texto JSON a objeto. Si no es JSON válido salta
+        // al catch.
         const data =
           JSON.parse(
             msg.toString()
           )
 
+        // Nuestra propia IP.
         const myIP =
-          getLocalIP()
+          obtenerMiIP()
 
+        // Si el mensaje lo mandamos nosotros mismos, lo
+        // ignoramos.
         if (
           rinfo.address ===
           myIP
@@ -675,14 +1228,18 @@ function startUDPServer() {
 
         }
 
+        // Solo nos interesan los celulares que mandan su
+        // nombre.
         if (
           data.deviceType ===
             'mobile' &&
           data.alias
         ) {
 
+          // Ficha del celular: nombre, IP (la de quien
+          // mandó el mensaje), puerto y hora actual.
           const device:
-            MobileDevice =
+            Celular =
             {
 
               alias:
@@ -693,7 +1250,7 @@ function startUDPServer() {
 
               port:
                 data.port ??
-                WS_PORT,
+                PUERTO_HTTP,
 
               deviceType:
                 'mobile',
@@ -703,29 +1260,34 @@ function startUDPServer() {
 
             }
 
-          const isNew =
-            !mobileDevices.has(
+          // ¿Es la primera vez que lo vemos?
+          const esNuevo =
+            !celulares.has(
               rinfo.address
             )
 
-          mobileDevices.set(
+          // Lo guardamos (o actualizamos) en la lista.
+          celulares.set(
             rinfo.address,
             device
           )
 
-          win?.webContents.send(
+          // Le avisamos a la pantalla para que lo muestre
+          // ("device-found").
+          ventana?.webContents.send(
             'device-found',
             device
           )
 
-          // Le respondemos directo (unicast) al celular
-          // para que nos encuentre sin esperar al próximo
-          // broadcast.
+          // Si es nuevo, le mandamos el aviso de la PC
+          // directo a SU IP (unicast = a uno solo). Así nos
+          // encuentra al instante, sin esperar al próximo
+          // aviso general.
           if (
-            isNew
+            esNuevo
           ) {
 
-            sendBeacon(
+            enviarAviso(
               rinfo.address
             )
 
@@ -734,9 +1296,11 @@ function startUDPServer() {
         }
 
       } catch {
+      // Llegó algo que no es JSON (otro programa usando el
+      // puerto). Lo ignoramos.
 
-        // Paquete inválido.
-        // Lo ignoramos.
+        // Llegó algo que no es JSON (otro programa usando
+        // el puerto). Lo ignoramos.
 
       }
 
@@ -744,51 +1308,60 @@ function startUDPServer() {
   )
 
 
-  udpServer.bind(
-    UDP_PORT,
+  // bind = "ocupar" el puerto 53317 para empezar a
+  // escuchar.
+  servidorUDP.bind(
+    PUERTO_UDP,
     () => {
 
       try {
 
-        udpServer?.setBroadcast(
+        // Habilitamos mandar mensajes a toda la red
+        // (broadcast).
+        servidorUDP?.setBroadcast(
           true
         )
 
       } catch {}
 
+      // Avisamos en la consola que UDP está activo.
       console.log(
-        `📡 UDP activo en ${UDP_PORT}`
+        `📡 UDP activo en ${PUERTO_UDP}`
       )
 
-      serverStatus.udp =
+      // Anotamos que UDP arrancó...
+      estadoServidores.udp =
         true
 
-      win?.webContents.send(
+      // ...y se lo avisamos a la pantalla (para el LED).
+      ventana?.webContents.send(
         'server-status',
-        serverStatus
+        estadoServidores
       )
 
     }
   )
 
 
-  beaconTimer =
+  // Cada 1 s (CADA_CUANTO_AVISAR) mandamos el aviso de la PC a
+  // cada dirección de broadcast.
+  relojDeAviso =
     setInterval(
       () => {
 
         for (
           const address of
-            getBroadcastAddresses()
+            obtenerDireccionesBroadcast()
         ) {
 
-          sendBeacon(
+          enviarAviso(
             address
           )
 
         }
 
       },
-      BEACON_INTERVAL
+      CADA_CUANTO_AVISAR
     )
 
 }
@@ -797,36 +1370,52 @@ function startUDPServer() {
 // ============================================================
 // BEACON ("Soy un receptor activo")
 // ============================================================
+//
+// Beacon = "faro". Es un mensajito JSON que dice: soy
+// LocalSend, me llamo X, mi IP es Y, recibo archivos en el
+// puerto 53318 y soy una PC (desktop).
+// Buffer.from convierte el texto a bytes, que es lo que
+// viaja por la red.
 
-function sendBeacon(
+// Manda el aviso "acá estoy" de la PC a una dirección (a
+// toda la red o a un celular).
+function enviarAviso(
   address: string
 ) {
 
+  // Si UDP no está prendido, no hacemos nada.
   if (
-    !udpServer
+    !servidorUDP
   ) {
 
     return
 
   }
 
+  // Armamos el aviso en JSON y lo pasamos a bytes (Buffer),
+  // que es lo que viaja por la red.
   const beacon =
     Buffer.from(
 
       JSON.stringify({
 
+        // Para que sepan que es LocalSend
         service:
           'LocalSend',
 
+        // Nombre de la PC
         alias:
-          DEVICE_ALIAS,
+          NOMBRE_DE_LA_PC,
 
+        // IP de la PC
         ip:
-          getLocalIP(),
+          obtenerMiIP(),
 
+        // Puerto donde recibimos archivos (53318)
         port:
-          WS_PORT,
+          PUERTO_HTTP,
 
+        // Somos una PC
         deviceType:
           'desktop',
 
@@ -836,11 +1425,13 @@ function sendBeacon(
 
   try {
 
-    udpServer.send(
+    // Lo mandamos: (datos, desde el byte 0, todos los
+    // bytes, al puerto 53317, a esta dirección).
+    servidorUDP.send(
       beacon,
       0,
       beacon.length,
-      UDP_PORT,
+      PUERTO_UDP,
       address
     )
 
@@ -850,13 +1441,21 @@ function sendBeacon(
 
 
 // ============================================================
-// PATH ÚNICO
+// NOMBRE ÚNICO (no pisar archivos)
 // ============================================================
+//
+// Si "foto.jpg" ya existe en Descargas, devuelve
+// "foto(1).jpg"; si ese también existe, "foto(2).jpg", y
+// así. Nunca se borra un archivo que ya tenías.
 
-function getUniquePath(
+// Devuelve un nombre que todavía no exista, para no pisar
+// archivos.
+function rutaSinRepetir(
   filePath: string
 ): string {
 
+  // Si no hay ningún archivo con ese nombre, lo usamos tal
+  // cual.
   if (
     !fs.existsSync(
       filePath
@@ -867,31 +1466,38 @@ function getUniquePath(
 
   }
 
+  // Extensión. Ej: ".jpg"
   const ext =
     path.extname(
       filePath
     )
 
+  // Nombre sin extensión. Ej: "foto"
   const base =
     path.basename(
       filePath,
       ext
     )
 
+  // Carpeta
   const dir =
     path.dirname(
       filePath
     )
 
+  // Número que vamos a agregar, empezando por 1.
   let i =
     1
 
+  // Primer intento: "foto(1).jpg".
   let candidate =
     path.join(
       dir,
       `${base}(${i})${ext}`
     )
 
+  // Mientras ese nombre también exista, probamos con el
+  // siguiente: foto(2), foto(3)...
   while (
     fs.existsSync(
       candidate
@@ -908,6 +1514,7 @@ function getUniquePath(
 
   }
 
+  // Devolvemos el primero que esté libre.
   return candidate
 
 }
@@ -917,12 +1524,16 @@ function getUniquePath(
 // EXTENSIÓN SEGÚN EL TIPO (MIME)
 // ============================================================
 //
-// Algunos celulares mandan el nombre de la galería sin
-// extensión (ej: "image_1000211109"). Sin ".jpg" Windows no
-// sabe con qué abrirlo, así que la agregamos según el
-// Content-Type que manda el celular.
+// MIME = el "tipo" de archivo que manda el celular. Ej:
+// image/jpeg.
+// Algunos celulares mandan el nombre sin extensión (ej:
+// "image_1000211109"). Sin ".jpg" Windows no sabe con qué
+// programa abrirlo, así que con esta tabla le agregamos la
+// extensión según el tipo.
 
-const MIME_TO_EXT: Record<string, string> = {
+// Tabla: tipo de archivo (MIME) → extensión. Ej:
+// "image/jpeg" → ".jpg".
+const TIPO_A_EXTENSION: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/gif': '.gif',
@@ -950,11 +1561,14 @@ const MIME_TO_EXT: Record<string, string> = {
   'application/vnd.android.package-archive': '.apk',
 }
 
-function ensureExtension(
+// Si al nombre le falta la extensión, se la agrega según el
+// tipo (MIME).
+function asegurarExtension(
   fileName: string,
   contentType: string | undefined
 ): string {
 
+  // Si ya tiene extensión, lo devolvemos igual.
   if (
     path.extname(
       fileName
@@ -963,15 +1577,20 @@ function ensureExtension(
     return fileName
   }
 
+  // Limpiamos el tipo: de "image/jpeg; charset=x" nos
+  // quedamos con "image/jpeg", en minúsculas.
   const mime =
     (contentType ?? '')
       .split(';')[0]
       .trim()
       .toLowerCase()
 
+  // Buscamos la extensión en la tabla.
   const ext =
-    MIME_TO_EXT[mime]
+    TIPO_A_EXTENSION[mime]
 
+  // Si la encontramos, la agregamos; si no, el nombre queda
+  // igual.
   return ext
     ? fileName + ext
     : fileName
@@ -983,30 +1602,38 @@ function ensureExtension(
 // DETECTAR EL TIPO POR EL CONTENIDO ("magic numbers")
 // ============================================================
 //
-// Si aun así el archivo quedó sin extensión (el celular no
-// mandó el tipo), miramos sus primeros bytes: cada formato
-// empieza con una "firma" fija. Ej: todo JPG empieza con
-// FF D8 FF y todo PDF con "%PDF".
-// Se leen solo 32 bytes, no el archivo entero.
+// Plan B: si el archivo sigue sin extensión (el celular no
+// mandó el tipo), miramos sus primeros bytes. Cada formato
+// empieza con una "firma" fija, como un DNI: todo JPG
+// empieza con FF D8 FF y todo PDF con las letras "%PDF".
+// Solo leemos 32 bytes, no el archivo entero, así que es
+// instantáneo aunque pese 2 GB.
 
-function detectExtension(
+// Adivina la extensión mirando los primeros 32 bytes del
+// archivo (su "firma").
+function detectarExtension(
   filePath: string
 ): string {
 
+  // Espacio para 32 bytes.
   const header =
     Buffer.alloc(32)
 
+  // Cuántos bytes se pudieron leer.
   let read =
     0
 
   try {
 
+    // Abrimos el archivo para leer ("r"). fd = número que
+    // identifica al archivo abierto.
     const fd =
       fs.openSync(
         filePath,
         'r'
       )
 
+    // Leemos los primeros 32 bytes, desde el principio.
     read =
       fs.readSync(
         fd,
@@ -1016,64 +1643,88 @@ function detectExtension(
         0
       )
 
+    // Cerramos el archivo.
     fs.closeSync(
       fd
     )
 
   } catch {
+  // Si no se pudo leer, no adivinamos nada.
 
     return ''
 
   }
 
+  // Nos quedamos solo con los bytes que se leyeron.
   const h =
     header.subarray(0, read)
 
+  // ascii(a, b) = leer los bytes de la posición a hasta la
+  // b como letras.
   const ascii =
     (start: number, end: number) =>
       h.toString('latin1', start, end)
 
-  // Imágenes
+  // JPG: empieza con los bytes FF D8 FF
   if (h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff) return '.jpg'
+  // PNG: byte 89 + las letras "PNG"
   if (h[0] === 0x89 && ascii(1, 4) === 'PNG') return '.png'
+  // GIF: empieza con "GIF8"
   if (ascii(0, 4) === 'GIF8') return '.gif'
+  // WEBP: "RIFF" + "WEBP"
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return '.webp'
 
-  // Videos y audio con "ftyp" (MP4, MOV, 3GP, HEIC, M4A)
+  // Videos y audio modernos tienen "ftyp" en la posición 4.
+  // Los 4 bytes siguientes (la "marca") dicen cuál es:
   if (ascii(4, 8) === 'ftyp') {
 
+    // Marca del formato
     const brand =
       ascii(8, 12)
 
+    // HEIC (fotos de iPhone)
     if (/^(heic|heix|hevc|mif1|msf1)$/.test(brand)) return '.heic'
+    // MOV (videos de iPhone)
     if (brand === 'qt  ') return '.mov'
+    // 3GP (videos de celulares viejos)
     if (brand.startsWith('3g')) return '.3gp'
+    // M4A (audio)
     if (brand.startsWith('M4A')) return '.m4a'
+    // Si no es ninguno de esos, es MP4
     return '.mp4'
 
   }
 
+  // WAV: "RIFF" + "WAVE"
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') return '.wav'
+  // AVI: "RIFF" + "AVI"
   if (ascii(0, 4) === 'RIFF' && ascii(8, 11) === 'AVI') return '.avi'
+  // MKV: empieza con 1A 45 DF A3
   if (h[0] === 0x1a && h[1] === 0x45 && h[2] === 0xdf && h[3] === 0xa3) return '.mkv'
+  // MP3: empieza con "ID3" o con FF Ex
   if (ascii(0, 3) === 'ID3' || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0)) return '.mp3'
+  // OGG: empieza con "OggS"
   if (ascii(0, 4) === 'OggS') return '.ogg'
 
-  // Documentos
+  // PDF: empieza con "%PDF"
   if (ascii(0, 4) === '%PDF') return '.pdf'
+  // ZIP: empieza con "PK" (los .docx y .xlsx también son
+  // ZIP por dentro)
   if (h[0] === 0x50 && h[1] === 0x4b && h[2] === 0x03 && h[3] === 0x04) return '.zip'
 
+  // No lo reconocimos: lo dejamos sin extensión.
   return ''
 
 }
 
 
-// Si el archivo no tiene extensión, se la pone según su
-// contenido. Devuelve la ruta final (renombrada o igual).
-function fixMissingExtension(
+// Si el archivo no tiene extensión, la adivina por el
+// contenido y lo renombra. Devuelve la ruta final.
+function arreglarExtension(
   filePath: string
 ): string {
 
+  // Si ya tiene extensión, no hacemos nada.
   if (
     path.extname(
       filePath
@@ -1082,24 +1733,28 @@ function fixMissingExtension(
     return filePath
   }
 
+  // Adivinamos por el contenido.
   const ext =
-    detectExtension(
+    detectarExtension(
       filePath
     )
 
+  // Si no lo reconocimos, lo dejamos igual.
   if (
     !ext
   ) {
     return filePath
   }
 
+  // Nombre nuevo con la extensión (sin pisar otro archivo).
   const newPath =
-    getUniquePath(
+    rutaSinRepetir(
       filePath + ext
     )
 
   try {
 
+    // Renombramos el archivo.
     fs.renameSync(
       filePath,
       newPath
@@ -1121,31 +1776,35 @@ function fixMissingExtension(
 }
 
 
-// Al abrir la app: arregla archivos viejos sin extensión
-// que hayan quedado en la carpeta de descargas.
-function fixOldDownloads() {
+// Al abrir la app revisa la carpeta de descargas y arregla
+// los archivos viejos que hayan quedado sin extensión.
+function arreglarDescargasViejas() {
 
   try {
 
+    // Recorremos cada archivo de la carpeta de descargas.
     for (
       const name of
         fs.readdirSync(
-          DOWNLOAD_DIR
+          CARPETA_DESCARGAS
         )
     ) {
 
+      // Ruta completa del archivo.
       const fullPath =
         path.join(
-          DOWNLOAD_DIR,
+          CARPETA_DESCARGAS,
           name
         )
 
+      // Si es un archivo (no una carpeta) y no está vacío,
+      // le arreglamos la extensión.
       if (
         fs.statSync(fullPath).isFile() &&
         fs.statSync(fullPath).size > 0
       ) {
 
-        fixMissingExtension(
+        arreglarExtension(
           fullPath
         )
 
@@ -1166,10 +1825,22 @@ function fixOldDownloads() {
 
 
 // ============================================================
-// SANITIZAR NOMBRE
+// LIMPIAR EL NOMBRE DEL ARCHIVO
 // ============================================================
+//
+// Reemplaza por "_" los caracteres que Windows no permite
+// en un nombre ( < > : " / \ | ? * ) y los caracteres
+// invisibles.
+// Como también saca las barras, evita trucos como
+// "../../Windows/archivo" para escribir fuera de la carpeta
+// de descargas. Si el nombre queda vacío, inventa uno:
+// "archivo-<número>".
 
-function sanitizeFileName(
+// Limpia el nombre: cambia por "_" los caracteres
+// prohibidos en Windows ( < > : " / \ | ? * ) y los
+// invisibles. trim() saca espacios del principio y del
+// final. Si queda vacío, inventa "archivo-<número>".
+function limpiarNombre(
   name: string
 ): string {
 
@@ -1185,13 +1856,25 @@ function sanitizeFileName(
 
 
 // ============================================================
-// HTTP SERVER
+// SERVIDOR HTTP (por acá viajan los archivos)
 // ============================================================
+//
+// Escucha en el puerto 53318. El celular le hace "pedidos"
+// (requests) a direcciones como /ping, /upload o /download.
+// Cada bloque "if" de abajo atiende una dirección distinta,
+// como las ventanillas de un banco.
+// req = lo que pide el celular, res = lo que le
+// respondemos.
+// Códigos de respuesta: 200 = OK, 206 = parte del archivo,
+// 400 = pedido mal hecho, 403 = prohibido, 404 = no existe,
+// 500 = error en la PC.
 
-function startHttpServer() {
+// Arranca el servidor HTTP en el puerto 53318.
+function iniciarServidorHTTP() {
 
+  // Si ya está prendido, no lo prendemos otra vez.
   if (
-    httpServer
+    servidorHTTP
   ) {
 
     return
@@ -1199,14 +1882,20 @@ function startHttpServer() {
   }
 
 
-  httpServer =
+  // Creamos el servidor. La función de adentro se ejecuta
+  // CADA VEZ que llega un pedido: req = el pedido, res =
+  // nuestra respuesta.
+  servidorHTTP =
     http.createServer(
       (
         req,
         res
       ) => {
 
-        const clientIP =
+        // IP del celular que hizo el pedido. Le sacamos el
+        // prefijo "::ffff:" que agrega Node cuando la IP
+        // viene en formato IPv6.
+        const ipDelCelular =
           req.socket.remoteAddress
             ?.replace(
               /^::ffff:/,
@@ -1219,29 +1908,35 @@ function startHttpServer() {
           'unknown'
 
 
-        // Cualquier pedido del celular demuestra que
-        // sigue conectado (no solo /register).
-        markSeen(
-          clientIP
+        // Si el celular nos habla, está vivo: actualizamos
+        // su "última vez visto".
+        marcarComoVisto(
+          ipDelCelular
         )
 
 
-        // La IP de la PC por la que llegó este pedido.
-        // Es la correcta aunque la PC tenga varios
-        // adaptadores (hotspot, VPN, VirtualBox...).
-        const serverIP =
+        // IP de la PC por la que llegó el pedido. Es la
+        // correcta aunque la PC tenga varias placas de red
+        // (hotspot, VPN, VirtualBox...).
+        const ipDeLaPC =
           req.socket.localAddress
             ?.replace(
               /^::ffff:/,
               ''
             ) ||
-          getLocalIP()
+          obtenerMiIP()
 
 
         // ====================================================
-        // PING
+        // PING ("¿estás ahí?")
         // ====================================================
+        //
+        // El celular pregunta si la PC existe y respondemos
+        // con nuestros datos (nombre, IP, puerto).
+        // Cache-Control: no-store = que no guarde la
+        // respuesta; queremos la respuesta real cada vez.
 
+        // GET /ping: el celular pregunta "¿estás ahí?".
         if (
           req.method ===
             'GET' &&
@@ -1249,6 +1944,8 @@ function startHttpServer() {
             '/ping'
         ) {
 
+          // Respondemos 200 (OK), en formato JSON y sin
+          // guardar en caché (no-store).
           res.writeHead(
             200,
             {
@@ -1259,6 +1956,8 @@ function startHttpServer() {
             }
           )
 
+          // Mandamos nuestros datos (nombre, IP, puerto) y
+          // cerramos la respuesta.
           res.end(
             JSON.stringify({
 
@@ -1269,26 +1968,36 @@ function startHttpServer() {
                 'LocalSend',
 
               alias:
-                DEVICE_ALIAS,
+                NOMBRE_DE_LA_PC,
 
               ip:
-                serverIP,
+                ipDeLaPC,
 
               port:
-                WS_PORT,
+                PUERTO_HTTP,
 
             })
           )
 
+          // return = terminamos acá; no seguimos revisando
+          // las otras direcciones.
           return
 
         }
 
 
         // ====================================================
-        // REGISTER
+        // REGISTER (el celular se presenta)
         // ====================================================
+        //
+        // El celular dice "hola, soy el Galaxy A54". El
+        // cuerpo del pedido llega por partes: las juntamos
+        // con el evento "data" y cuando terminó de llegar
+        // (evento "end") lo convertimos de JSON y lo
+        // guardamos en la lista.
 
+        // POST /register: el celular se presenta ("hola,
+        // soy el Galaxy A54").
         if (
           req.method ===
             'POST' &&
@@ -1296,9 +2005,13 @@ function startHttpServer() {
             '/register'
         ) {
 
+          // Acá vamos juntando el texto que manda el
+          // celular.
           let body =
             ''
 
+          // El cuerpo llega por partes (chunks): las vamos
+          // sumando.
           req.on(
             'data',
             chunk => {
@@ -1309,31 +2022,35 @@ function startHttpServer() {
             }
           )
 
+          // Cuando terminó de llegar todo:
           req.on(
             'end',
             () => {
 
               try {
 
+                // Convertimos el texto JSON a objeto.
                 const data =
                   JSON.parse(
                     body
                   )
 
+                // Ficha del celular. Si no mandó nombre,
+                // usamos "Android-<IP>".
                 const device:
-                  MobileDevice =
+                  Celular =
                   {
 
                     alias:
                       data.alias ||
-                      `Android-${clientIP}`,
+                      `Android-${ipDelCelular}`,
 
                     ip:
-                      clientIP,
+                      ipDelCelular,
 
                     port:
                       data.port ??
-                      WS_PORT,
+                      PUERTO_HTTP,
 
                     deviceType:
                       'mobile',
@@ -1343,33 +2060,38 @@ function startHttpServer() {
 
                   }
 
-                const existed =
-                  mobileDevices.has(
-                    clientIP
+                // ¿Ya lo conocíamos?
+                const yaExistia =
+                  celulares.has(
+                    ipDelCelular
                   )
 
-                mobileDevices.set(
-                  clientIP,
+                // Lo guardamos o actualizamos.
+                celulares.set(
+                  ipDelCelular,
                   device
                 )
 
+                // Si es nuevo, lo anotamos en la consola.
                 if (
-                  !existed
+                  !yaExistia
                 ) {
 
                   console.log(
                     '📱 Nuevo dispositivo:',
                     device.alias,
-                    clientIP
+                    ipDelCelular
                   )
 
                 }
 
-                win?.webContents.send(
+                // Avisamos a la pantalla ("device-found").
+                ventana?.webContents.send(
                   'device-found',
                   device
                 )
 
+                // Respondemos OK.
                 res.writeHead(
                   200,
                   {
@@ -1386,6 +2108,8 @@ function startHttpServer() {
                 )
 
               } catch {
+              // Si el JSON vino mal, respondemos 400
+              // (pedido mal hecho).
 
                 res.writeHead(
                   400,
@@ -1413,9 +2137,16 @@ function startHttpServer() {
 
 
         // ====================================================
-        // DEVICES
+        // DEVICES (lista de dispositivos)
         // ====================================================
+        //
+        // Devuelve la PC + los celulares, sin incluir al
+        // que pregunta (no tiene sentido que se vea a sí
+        // mismo). borrarCelularesInactivos() primero saca a los que ya
+        // se fueron.
 
+        // GET /devices: el celular pide la lista de
+        // dispositivos.
         if (
           req.method ===
             'GET' &&
@@ -1423,19 +2154,22 @@ function startHttpServer() {
             '/devices'
         ) {
 
-          cleanupStale()
+          // Primero sacamos a los que ya se fueron.
+          borrarCelularesInactivos()
 
-          const selfEntry =
+          // La PC misma, como un dispositivo más de la
+          // lista.
+          const laPC =
             {
 
               alias:
-                DEVICE_ALIAS,
+                NOMBRE_DE_LA_PC,
 
               ip:
-                serverIP,
+                ipDeLaPC,
 
               port:
-                WS_PORT,
+                PUERTO_HTTP,
 
               deviceType:
                 'desktop' as const,
@@ -1443,17 +2177,21 @@ function startHttpServer() {
             }
 
 
+          // Lista = la PC + todos los celulares, sin el que
+          // pregunta (filter = quedarse solo con los que
+          // cumplen la condición).
           const list =
             [
-              selfEntry,
-              ...mobileDevices.values(),
+              laPC,
+              ...celulares.values(),
             ].filter(
               device =>
                 device.ip !==
-                clientIP
+                ipDelCelular
             )
-            // Si no, el mismo celular se vería dos veces
-            // (por la IP del beacon UDP y la de /register).
+            // Quitamos repetidos por nombre: si no, el
+            // mismo celular se vería dos veces (con la IP
+            // del aviso UDP y con la de /register).
             .filter(
               (device, index, all) =>
                 all.findIndex(
@@ -1464,6 +2202,7 @@ function startHttpServer() {
             )
 
 
+          // Respondemos 200 con la lista en JSON.
           res.writeHead(
             200,
             {
@@ -1486,9 +2225,16 @@ function startHttpServer() {
 
 
         // ====================================================
-        // INCOMING
+        // INCOMING ("¿hay archivos para mí?")
         // ====================================================
+        //
+        // El celular pregunta esto cada segundo. Le
+        // devolvemos SU cola de archivos pendientes (solo
+        // id, nombre y tamaño; la ruta del disco de la PC
+        // no se la mostramos).
 
+        // GET /incoming: el celular pregunta cada segundo
+        // "¿hay archivos para mí?".
         if (
           req.method ===
             'GET' &&
@@ -1496,10 +2242,14 @@ function startHttpServer() {
             '/incoming'
         ) {
 
+          // Tomamos SU cola (por su IP) y de cada archivo
+          // mandamos solo id, nombre y tamaño (map =
+          // transformar cada elemento). La ruta del disco
+          // no se la mostramos.
           const list =
             (
-              pendingByIP.get(
-                clientIP
+              colaPorCelular.get(
+                ipDelCelular
               ) ?? []
             ).map(
               file => ({
@@ -1516,6 +2266,7 @@ function startHttpServer() {
               })
             )
 
+          // Respondemos 200 con la lista en JSON.
           res.writeHead(
             200,
             {
@@ -1536,9 +2287,16 @@ function startHttpServer() {
 
 
         // ====================================================
-        // DOWNLOAD PC → MOBILE
+        // DESCARGA (PC → celular)
         // ====================================================
+        //
+        // El celular pide /download/<id> de un archivo que
+        // vio en /incoming. Lo buscamos en SU cola; si no
+        // está, o si se borró del disco, respondemos 404
+        // (no existe).
 
+        // GET /download/<id>: el celular descarga un
+        // archivo de su cola (PC → celular).
         if (
           req.method ===
             'GET' &&
@@ -1547,6 +2305,8 @@ function startHttpServer() {
           )
         ) {
 
+          // Sacamos el id de la dirección (lo que viene
+          // después de "/download/").
           const id =
             decodeURIComponent(
               req.url.substring(
@@ -1555,12 +2315,15 @@ function startHttpServer() {
             )
 
 
+          // Su cola de archivos.
           const list =
-            pendingByIP.get(
-              clientIP
+            colaPorCelular.get(
+              ipDelCelular
             ) ?? []
 
 
+          // Buscamos la posición del archivo con ese id (-1
+          // = no está).
           const index =
             list.findIndex(
               file =>
@@ -1568,6 +2331,7 @@ function startHttpServer() {
             )
 
 
+          // Si no está en la cola → 404 (no encontrado).
           if (
             index === -1
           ) {
@@ -1592,10 +2356,13 @@ function startHttpServer() {
           }
 
 
+          // El archivo encontrado.
           const file =
             list[index]
 
 
+          // Si el archivo se borró de la PC, lo sacamos de
+          // la cola (splice) y respondemos 404.
           if (
             !fs.existsSync(
               file.filePath
@@ -1622,25 +2389,34 @@ function startHttpServer() {
           // REANUDACIÓN (HTTP Range)
           // ==================================================
           //
-          // Si el celular ya tiene una parte del archivo, pide
-          // "Range: bytes=300000000-" y le mandamos SOLO lo
-          // que falta (respuesta 206 Partial Content).
-          // Sin Range, se manda completo (200 OK).
+          // Si una descarga se cortó al 60 %, el celular no
+          // empieza de cero: pide "Range: bytes=300000000-"
+          // ("mandame desde el byte 300.000.000"). Le
+          // mandamos SOLO lo que falta con el código 206
+          // (contenido parcial). Si no pide Range, mandamos
+          // todo con 200 (OK).
 
-          const rangeMatch =
+          // Si una descarga se cortó, el celular no empieza
+          // de cero: pide "Range: bytes=300000000-"
+          // ("mandame desde el byte 300.000.000"). Sacamos
+          // ese número con una expresión regular.
+          const pedidoDeRango =
             /^bytes=(\d+)-$/.exec(
               String(
                 req.headers.range ?? ''
               )
             )
 
+          // Desde qué byte mandamos: el número de Range, o
+          // 0 si no lo pidió.
           const start =
-            rangeMatch
-              ? Number(rangeMatch[1])
+            pedidoDeRango
+              ? Number(pedidoDeRango[1])
               : 0
 
 
-          // Pidió desde un byte que no existe.
+          // Pidió desde un byte que no existe (más allá del
+          // final) → 416 = "rango inválido".
           if (
             start >= file.fileSize &&
             file.fileSize > 0
@@ -1661,6 +2437,8 @@ function startHttpServer() {
           }
 
 
+          // Si es una reanudación, lo anotamos en la
+          // consola.
           if (
             start > 0
           ) {
@@ -1675,19 +2453,24 @@ function startHttpServer() {
           }
 
 
+          // Encabezados de la respuesta. Código 206 (una
+          // parte) si reanuda, 200 (completo) si no.
           res.writeHead(
             start > 0
               ? 206
               : 200,
             {
 
+              // Tipo: "bytes cualquiera" (octet-stream)
               'Content-Type':
                 'application/octet-stream',
 
-              // Solo lo que falta mandar.
+              // Cuántos bytes mandamos: solo lo que falta
               'Content-Length':
                 file.fileSize - start,
 
+              // Si reanuda, decimos qué parte mandamos:
+              // "bytes desde-hasta/total"
               ...(start > 0
                 ? {
                     'Content-Range':
@@ -1695,13 +2478,17 @@ function startHttpServer() {
                   }
                 : {}),
 
-              // Le avisamos al celular que puede reanudar.
+              // Le avisamos al celular que esta PC sabe
+              // reanudar descargas
               'Accept-Ranges':
                 'bytes',
 
+              // Nombre del archivo (codificado para que
+              // viaje bien con acentos y espacios)
               'Content-Disposition':
                 `attachment; filename="${encodeURIComponent(file.fileName)}"`,
 
+              // No guardar en caché
               'Cache-Control':
                 'no-store',
 
@@ -1709,11 +2496,13 @@ function startHttpServer() {
           )
 
 
-          // STREAM: el archivo se lee de a 1 MB.
-          // Nunca se carga completo en RAM, así que
-          // funciona igual con 500 MB o con 10 GB.
-          // "start" hace que empiece a leer desde la mitad.
-          const readStream =
+          // STREAM = leer el archivo de a pedacitos de 1 MB
+          // (highWaterMark), como tomar agua con una pajita
+          // en vez de tragarse la botella. Nunca está
+          // entero en la RAM: por eso funciona igual con
+          // 500 MB que con 10 GB. "start" = empieza a leer
+          // desde donde se había cortado.
+          const lectorDelArchivo =
             fs.createReadStream(
               file.filePath,
               {
@@ -1724,28 +2513,34 @@ function startHttpServer() {
             )
 
 
-          const reporter =
-            createProgressReporter(
+          // Reportero de progreso para este envío ("send"),
+          // arrancando desde "start".
+          const reportero =
+            crearReportero(
               'send',
               file.fileName,
               file.fileSize,
-              clientIP,
+              ipDelCelular,
               start
             )
 
 
-          // Contamos desde "start" para que el % siga
-          // desde donde había quedado.
-          let sentBytes =
+          // Bytes mandados. Empieza en "start" para que el
+          // % siga desde donde había quedado.
+          let bytesEnviados =
             start
 
+          // ¿Terminó bien?
           let completed =
             false
 
+          // ¿Falló?
           let failed =
             false
 
 
+          // fail: se cortó el envío. Se ejecuta una sola
+          // vez (por eso revisamos completed y failed).
           const fail =
             (
               message: string
@@ -1767,27 +2562,30 @@ function startHttpServer() {
                 message
               )
 
-              // El archivo sigue en la cola, así que el
-              // celular puede volver a pedirlo (Reintentar).
-              reporter.fail(
+              // Avisamos a la pantalla. El archivo NO se
+              // saca de la cola: el celular puede volver a
+              // pedirlo (Reintentar) y seguir desde donde
+              // quedó.
+              reportero.fail(
                 message,
                 true
               )
 
-              readStream.destroy()
+              // Dejamos de leer el archivo.
+              lectorDelArchivo.destroy()
 
             }
 
 
-          // Si se apaga el Wi-Fi, TCP no siempre avisa:
-          // la conexión queda "colgada". Con este timeout
-          // detectamos que no hubo actividad y cortamos.
+          // Si se apaga el Wi-Fi, la conexión no siempre
+          // avisa: queda "colgada" para siempre. Si pasan
+          // 20 s sin actividad, damos el envío por cortado.
           res.setTimeout(
-            INACTIVITY_TIMEOUT,
+            TIEMPO_SIN_ACTIVIDAD,
             () => {
 
               fail(
-                `Se perdió la conexión con el celular (sin actividad durante ${INACTIVITY_TIMEOUT / 1000} s). El celular puede reanudar desde donde quedó.`
+                `Se perdió la conexión con el celular (sin actividad durante ${TIEMPO_SIN_ACTIVIDAD / 1000} s). El celular puede reanudar desde donde quedó.`
               )
 
               res.destroy()
@@ -1796,22 +2594,25 @@ function startHttpServer() {
           )
 
 
-          readStream.on(
+          // Cada pedacito que sale: sumamos los bytes y
+          // actualizamos la barra.
+          lectorDelArchivo.on(
             'data',
             chunk => {
 
-              sentBytes +=
+              bytesEnviados +=
                 chunk.length
 
-              reporter.update(
-                sentBytes
+              reportero.update(
+                bytesEnviados
               )
 
             }
           )
 
 
-          readStream.on(
+          // No se pudo leer el archivo del disco de la PC.
+          lectorDelArchivo.on(
             'error',
             error => {
 
@@ -1830,6 +2631,8 @@ function startHttpServer() {
           )
 
 
+          // "close" antes de terminar = el celular se
+          // desconectó a mitad de camino.
           res.on(
             'close',
             () => {
@@ -1840,7 +2643,7 @@ function startHttpServer() {
               ) {
 
                 fail(
-                  `El celular se desconectó al ${file.fileSize > 0 ? Math.floor((sentBytes / file.fileSize) * 100) : 0}%. Puede reanudar desde ese punto.`
+                  `El celular se desconectó al ${file.fileSize > 0 ? Math.floor((bytesEnviados / file.fileSize) * 100) : 0}%. Puede reanudar desde ese punto.`
                 )
 
               }
@@ -1849,6 +2652,7 @@ function startHttpServer() {
           )
 
 
+          // "finish" = se mandó todo bien.
           res.on(
             'finish',
             () => {
@@ -1856,15 +2660,16 @@ function startHttpServer() {
               completed =
                 true
 
-              reporter.complete(
-                sentBytes
+              reportero.complete(
+                bytesEnviados
               )
 
             }
           )
 
 
-          readStream.on(
+          // Cuando se cierra el archivo:
+          lectorDelArchivo.on(
             'close',
             () => {
 
@@ -1872,15 +2677,19 @@ function startHttpServer() {
                 completed
               ) {
 
+                // Si terminó bien, buscamos su cola
+                // actual...
                 const current =
-                  pendingByIP.get(
-                    clientIP
+                  colaPorCelular.get(
+                    ipDelCelular
                   )
 
                 if (
                   current
                 ) {
 
+                  // ...la posición del archivo en la
+                  // cola...
                   const currentIndex =
                     current.findIndex(
                       item =>
@@ -1893,6 +2702,8 @@ function startHttpServer() {
                     -1
                   ) {
 
+                    // ...y lo sacamos (splice = borrar de
+                    // una lista): ya no está pendiente.
                     current.splice(
                       currentIndex,
                       1
@@ -1903,6 +2714,8 @@ function startHttpServer() {
                 }
 
 
+                // Notificación de Windows: "Archivo
+                // enviado".
                 try {
 
                   new Notification({
@@ -1923,7 +2736,11 @@ function startHttpServer() {
           )
 
 
-          readStream.pipe(
+          // pipe = "conectar la manguera": lo que se lee
+          // del disco va directo al celular. Si el Wi-Fi va
+          // lento, Node deja de leer el disco hasta que se
+          // libere (backpressure).
+          lectorDelArchivo.pipe(
             res
           )
 
@@ -1933,9 +2750,312 @@ function startHttpServer() {
 
 
         // ====================================================
-        // UPLOAD MOBILE → PC
+        // PREPARAR SUBIDA (pedir permiso antes de mandar)
         // ====================================================
+        //
+        // Paso a paso:
+        // 1) El celular manda SOLO los datos del archivo
+        //    (nombre, tamaño, tipo), no el archivo.
+        // 2) Mostramos el cartel Aceptar / Rechazar y
+        //    ESPERAMOS (await) la respuesta.
+        // 3) Si acepta → respondemos 200 + un token
+        //    (permiso de un solo uso). Si rechaza →
+        //    respondemos 403 ("prohibido") + el motivo, que
+        //    el celular le muestra al usuario.
+        // Recién con el token el celular manda los bytes a
+        // /upload. Así no se suben 500 MB para que después
+        // los rechacen.
 
+        // POST /prepare-upload: el celular pide permiso
+        // para mandar un archivo.
+        if (
+          req.method ===
+            'POST' &&
+          req.url ===
+            '/prepare-upload'
+        ) {
+
+          // Juntamos el texto que manda.
+          let body =
+            ''
+
+          // Llega por partes: las sumamos.
+          req.on(
+            'data',
+            chunk => {
+
+              body +=
+                chunk.toString()
+
+            }
+          )
+
+          // Cuando llegó todo (async porque adentro vamos a
+          // esperar el cartel):
+          req.on(
+            'end',
+            async () => {
+
+              // Datos del archivo (nombre, tamaño, tipo).
+              let data: any
+
+              try {
+
+                // Convertimos el JSON a objeto.
+                data =
+                  JSON.parse(
+                    body
+                  )
+
+              } catch {
+              // Si vino mal → 400 "Pedido inválido".
+
+                res.writeHead(
+                  400,
+                  {
+                    'Content-Type':
+                      'application/json',
+                  }
+                )
+
+                res.end(
+                  JSON.stringify({
+                    accepted:
+                      false,
+                    error:
+                      'Pedido inválido.',
+                  })
+                )
+
+                return
+
+              }
+
+              // Limpiamos el nombre y le agregamos la
+              // extensión según el tipo, si le falta.
+              const fileName =
+                asegurarExtension(
+                  limpiarNombre(
+                    String(
+                      data.fileName ||
+                      `archivo-${Date.now()}`
+                    )
+                  ),
+                  typeof data.mimeType === 'string'
+                    ? data.mimeType
+                    : undefined
+                )
+
+              // Tamaño (si no vino, 0).
+              const fileSize =
+                Number(
+                  data.size
+                ) || 0
+
+              // Nombre de quien lo manda: el que vino en el
+              // pedido, el de la lista o, si no hay, su IP.
+              const nombreDelQueEnvia =
+                String(
+                  data.alias ||
+                  celulares.get(ipDelCelular)?.alias ||
+                  ipDelCelular
+                )
+
+              // "Alarma" para cerrar el cartel si el
+              // celular se desconecta mientras esperamos.
+              const alarmaDeDesconexion =
+                new AbortController()
+
+              // Si la conexión se cierra antes de que
+              // respondamos, hacemos sonar la alarma
+              // (abort).
+              res.on(
+                'close',
+                () => {
+
+                  if (
+                    !res.writableFinished
+                  ) {
+                    alarmaDeDesconexion.abort()
+                  }
+
+                }
+              )
+
+              console.log(
+                '❓ Pidiendo aceptación:',
+                fileName,
+                'de',
+                nombreDelQueEnvia
+              )
+
+              // Acá va a quedar la respuesta del usuario.
+              let respuesta: RespuestaDelCartel
+
+              try {
+
+                // Mostramos el cartel. ACÁ se frena todo
+                // hasta que el usuario toca un botón.
+                respuesta =
+                  await preguntarSiAcepta(
+                    fileName,
+                    fileSize,
+                    nombreDelQueEnvia,
+                    alarmaDeDesconexion.signal
+                  )
+
+              } catch (
+                // Si el cartel falla, lo contamos como
+                // rechazo.
+                error
+              ) {
+
+                console.error(
+                  'Diálogo de aceptación:',
+                  error
+                )
+
+                respuesta =
+                  'rejected'
+
+              }
+
+              console.log(
+                '➡️ Respuesta:',
+                respuesta
+              )
+
+              // Si el celular ya se fue, no hay a quién
+              // responderle.
+              if (
+                respuesta === 'cancelled'
+              ) {
+
+                // El celular ya se fue: no hay a quién
+                // responderle.
+                return
+
+              }
+
+              // Si NO aceptó (rechazó o se acabó el
+              // tiempo):
+              if (
+                respuesta !== 'accepted'
+              ) {
+
+                // Mensaje para el celular según el motivo.
+                const reason =
+                  respuesta === 'timeout'
+                    ? `Nadie respondió en la PC durante ${TIEMPO_PARA_ACEPTAR / 1000} s, así que el envío se canceló.`
+                    : 'El usuario de la PC rechazó el archivo.'
+
+                // También lo mostramos en la pantalla de la
+                // PC (rejected: true muestra el 🚫).
+                ventana?.webContents.send(
+                  'transfer-error',
+                  {
+                    direction:
+                      'receive',
+                    fileName,
+                    peer:
+                      ipDelCelular,
+                    total:
+                      fileSize,
+                    bytes:
+                      0,
+                    progress:
+                      0,
+                    speed:
+                      0,
+                    eta:
+                      null,
+                    message:
+                      respuesta === 'timeout'
+                        ? `No respondiste a tiempo: se canceló "${fileName}".`
+                        : `Rechazaste "${fileName}". Se le avisó al celular.`,
+                    canRetry:
+                      false,
+                    rejected:
+                      true,
+                  }
+                )
+
+                // Le respondemos al celular 403 (prohibido)
+                // con el motivo.
+                res.writeHead(
+                  403,
+                  {
+                    'Content-Type':
+                      'application/json',
+                  }
+                )
+
+                res.end(
+                  JSON.stringify({
+                    accepted:
+                      false,
+                    error:
+                      reason,
+                  })
+                )
+
+                return
+
+              }
+
+              // Aceptó: creamos el token (un código al azar
+              // imposible de adivinar).
+              const token =
+                randomUUID()
+
+              // Guardamos el permiso: para qué IP, qué
+              // archivo y cuándo vence (ahora + 2 min).
+              permisosEntregados.set(
+                token,
+                {
+                  ip:
+                    ipDelCelular,
+                  fileName,
+                  expiresAt:
+                    Date.now() + DURACION_DEL_PERMISO,
+                }
+              )
+
+              // Respondemos 200 con accepted: true y el
+              // token.
+              res.writeHead(
+                200,
+                {
+                  'Content-Type':
+                    'application/json',
+                }
+              )
+
+              res.end(
+                JSON.stringify({
+                  accepted:
+                    true,
+                  token,
+                })
+              )
+
+            }
+          )
+
+          return
+
+        }
+
+
+        // ====================================================
+        // SUBIDA (celular → PC)
+        // ====================================================
+        //
+        // Acá llegan los bytes del archivo, después de que
+        // el usuario aceptó.
+
+        // POST /upload?token=...: llegan los bytes del
+        // archivo (celular → PC).
         if (
           req.method ===
             'POST' &&
@@ -1944,26 +3064,86 @@ function startHttpServer() {
           )
         ) {
 
-          const urlObj =
+          // Separamos la dirección en partes para poder
+          // leer los parámetros (?token=...).
+          const direccion =
             new URL(
               req.url,
               `http://${req.headers.host}`
             )
 
 
+          // Leemos el token (si no vino, texto vacío).
+          const token =
+            direccion.searchParams.get(
+              'token'
+            ) ?? ''
+
+          // Buscamos el permiso con ese token.
+          const accepted =
+            permisosEntregados.get(
+              token
+            )
+
+          // Lo borramos enseguida: un token sirve una sola
+          // vez.
+          permisosEntregados.delete(
+            token
+          )
+
+          // Si no hay permiso, es de otra IP o ya venció →
+          // no guardamos NADA en el disco.
+          if (
+            !accepted ||
+            accepted.ip !== ipDelCelular ||
+            accepted.expiresAt < Date.now()
+          ) {
+
+            console.log(
+              '⛔ Subida sin autorización de',
+              ipDelCelular
+            )
+
+            // 403 (prohibido) y le explicamos al celular
+            // qué hacer.
+            res.writeHead(
+              403,
+              {
+                'Content-Type':
+                  'application/json',
+                Connection:
+                  'close',
+              }
+            )
+
+            res.end(
+              JSON.stringify({
+                ok:
+                  false,
+                error:
+                  'La PC no autorizó este envío. Volvé a enviarlo para que aparezca el pedido de aceptación.',
+              })
+            )
+
+            // resume() = tirar a la basura los bytes que el
+            // celular ya había empezado a mandar.
+            req.resume()
+
+            return
+
+          }
+
+
+          // Nombre que se aceptó en el cartel.
           const rawName =
-            urlObj.searchParams.get(
-              'fileName'
-            ) ||
-            `archivo-${Date.now()}`
+            accepted.fileName
 
 
-          // searchParams.get() ya decodifica el nombre.
-          // Decodificar dos veces rompía con nombres
-          // que tienen "%" (ej: "100% final.mp4").
+          // Lo limpiamos y le agregamos la extensión según
+          // el tipo (Content-Type) si le falta.
           const fileName =
-            ensureExtension(
-              sanitizeFileName(
+            asegurarExtension(
+              limpiarNombre(
                 rawName
               ),
               req.headers[
@@ -1972,21 +3152,26 @@ function startHttpServer() {
             )
 
 
-          const finalPath =
-            getUniquePath(
+          // Ruta final en Descargas/LocalSend, con (1),
+          // (2)... si ya existe uno igual.
+          const rutaFinal =
+            rutaSinRepetir(
               path.join(
-                DOWNLOAD_DIR,
+                CARPETA_DESCARGAS,
                 fileName
               )
             )
 
 
-          const expectedSize =
+          // Tamaño que DEBERÍA tener el archivo
+          // (Content-Length). Al final lo comparamos con lo
+          // que llegó.
+          const tamanoEsperado =
             Number(
               req.headers[
                 'content-length'
               ] ??
-              urlObj.searchParams.get(
+              direccion.searchParams.get(
                 'size'
               ) ??
               0
@@ -2000,14 +3185,18 @@ function startHttpServer() {
 
           console.log(
             '📦 Tamaño esperado:',
-            expectedSize
+            tamanoEsperado
           )
 
 
-          const writeStream =
+          // Abrimos el archivo para irlo escribiendo de a
+          // pedacitos de 1 MB (stream), sin tenerlo entero
+          // en memoria.
+          const escritorDelArchivo =
             fs.createWriteStream(
-              finalPath,
+              rutaFinal,
               {
+                // "w" = crear el archivo para escribir
                 flags:
                   'w',
                 highWaterMark:
@@ -2016,27 +3205,31 @@ function startHttpServer() {
             )
 
 
-          const reporter =
-            createProgressReporter(
+          // Reportero de progreso para esta recepción
+          // ("receive").
+          const reportero =
+            crearReportero(
               'receive',
               fileName,
-              expectedSize,
-              clientIP
+              tamanoEsperado,
+              ipDelCelular
             )
 
 
-          let receivedBytes =
+          // Bytes recibidos hasta ahora.
+          let bytesRecibidos =
             0
 
+          // ¿Terminó bien?
           let finished =
             false
 
+          // ¿Falló?
           let failed =
             false
 
 
-          // Borra el archivo a medias y le avisa a React
-          // en qué porcentaje quedó y por qué.
+          // fail: algo salió mal. Se ejecuta una sola vez.
           const fail =
             (
               message: string
@@ -2058,32 +3251,40 @@ function startHttpServer() {
                 message
               )
 
-              reporter.fail(
+              // Avisamos a la pantalla en qué % quedó y por
+              // qué (canRetry false: hay que reenviar desde
+              // el celular).
+              reportero.fail(
                 message,
                 false
               )
 
+              // Desconectamos la manguera.
               req.unpipe(
-                writeStream
+                escritorDelArchivo
               )
 
-              writeStream.destroy()
+              // Cerramos el archivo.
+              escritorDelArchivo.destroy()
 
+              // Borramos el archivo a medias, para que no
+              // quede uno roto en Descargas.
               fs.unlink(
-                finalPath,
+                rutaFinal,
                 () => {}
               )
 
             }
 
 
-          // Detecta conexiones "colgadas" (Wi-Fi apagado).
+          // Si pasan 20 s sin que llegue nada, damos la
+          // subida por cortada (Wi-Fi apagado).
           req.setTimeout(
-            INACTIVITY_TIMEOUT,
+            TIEMPO_SIN_ACTIVIDAD,
             () => {
 
               fail(
-                `No llegaron datos durante ${INACTIVITY_TIMEOUT / 1000} s: se perdió la conexión con el celular. Hay que reiniciar el envío desde el celular.`
+                `No llegaron datos durante ${TIEMPO_SIN_ACTIVIDAD / 1000} s: se perdió la conexión con el celular. Hay que reiniciar el envío desde el celular.`
               )
 
               req.destroy()
@@ -2092,23 +3293,26 @@ function startHttpServer() {
           )
 
 
+          // Cada pedacito que llega: sumamos los bytes y
+          // actualizamos la barra.
           req.on(
             'data',
             chunk => {
 
-              receivedBytes +=
+              bytesRecibidos +=
                 chunk.length
 
-              reporter.update(
-                receivedBytes
+              reportero.update(
+                bytesRecibidos
               )
 
             }
           )
 
 
-          // 'close' sin haber recibido todo el cuerpo =
-          // el celular canceló o se cortó la red.
+          // Si la conexión se cierra y NO llegó todo
+          // (req.complete = false), el celular canceló o se
+          // cortó la red.
           req.on(
             'close',
             () => {
@@ -2118,8 +3322,8 @@ function startHttpServer() {
               ) {
 
                 const percent =
-                  expectedSize > 0
-                    ? Math.floor((receivedBytes / expectedSize) * 100)
+                  tamanoEsperado > 0
+                    ? Math.floor((bytesRecibidos / tamanoEsperado) * 100)
                     : 0
 
                 fail(
@@ -2132,6 +3336,8 @@ function startHttpServer() {
           )
 
 
+          // Errores de la conexión: solo los mostramos en
+          // la consola ("close" ya se encarga del resto).
           req.on(
             'error',
             error => {
@@ -2145,11 +3351,13 @@ function startHttpServer() {
           )
 
 
-          writeStream.on(
+          // Error al escribir en el disco de la PC.
+          escritorDelArchivo.on(
             'error',
             error => {
 
-              // Ya lo cerramos nosotros por un corte.
+              // Si es porque nosotros ya cortamos, no
+              // hacemos nada más.
               if (
                 failed
               ) {
@@ -2161,6 +3369,8 @@ function startHttpServer() {
                 error
               )
 
+              // ENOSPC = el disco está lleno. Damos un
+              // mensaje claro para ese caso.
               const reason =
                 (error as NodeJS.ErrnoException).code === 'ENOSPC'
                   ? 'No hay espacio suficiente en el disco de la PC.'
@@ -2170,16 +3380,19 @@ function startHttpServer() {
                 reason
               )
 
-              // Dejamos de leer lo que manda el celular
-              // y le respondemos el motivo.
+              // Desconectamos la manguera y tiramos lo que
+              // siga llegando...
               req.unpipe(
-                writeStream
+                escritorDelArchivo
               )
 
               req.resume()
 
               try {
 
+                // ...y le respondemos al celular el motivo
+                // (500 = error en la PC), si todavía no le
+                // respondimos.
                 if (
                   !res.headersSent
                 ) {
@@ -2209,7 +3422,9 @@ function startHttpServer() {
           )
 
 
-          writeStream.on(
+          // "finish" = se terminó de escribir todo en el
+          // disco.
+          escritorDelArchivo.on(
             'finish',
             () => {
 
@@ -2226,38 +3441,45 @@ function startHttpServer() {
                 true
 
 
-              const actualSize =
+              // VERIFICACIÓN: medimos el archivo guardado.
+              const tamanoReal =
                 fs.statSync(
-                  finalPath
+                  rutaFinal
                 ).size
 
 
+              // Si no pesa exactamente lo esperado, llegó
+              // incompleto:
               if (
-                expectedSize > 0 &&
-                actualSize !==
-                  expectedSize
+                tamanoEsperado > 0 &&
+                tamanoReal !==
+                  tamanoEsperado
               ) {
 
                 console.error(
                   '❌ Tamaño incorrecto:',
-                  actualSize,
-                  expectedSize
+                  tamanoReal,
+                  tamanoEsperado
                 )
 
 
                 try {
+                  // lo borramos,
                   fs.unlinkSync(
-                    finalPath
+                    rutaFinal
                   )
                 } catch {}
 
 
-                reporter.fail(
-                  `El archivo llegó incompleto (${actualSize} de ${expectedSize} bytes). Se descartó; hay que reiniciar el envío.`,
+                // avisamos en la pantalla
+                reportero.fail(
+                  `El archivo llegó incompleto (${tamanoReal} de ${tamanoEsperado} bytes). Se descartó; hay que reiniciar el envío.`,
                   false
                 )
 
 
+                // y le respondemos 400 al celular con los
+                // dos tamaños.
                 res.writeHead(
                   400,
                   {
@@ -2276,10 +3498,10 @@ function startHttpServer() {
                       'El tamaño del archivo recibido no coincide.',
 
                     received:
-                      actualSize,
+                      tamanoReal,
 
                     expected:
-                      expectedSize,
+                      tamanoEsperado,
 
                   })
                 )
@@ -2290,33 +3512,37 @@ function startHttpServer() {
 
 
               // Última red de seguridad: si llegó sin
-              // extensión, se la ponemos según su contenido.
-              const savedPath =
-                fixMissingExtension(
-                  finalPath
+              // extensión, se la ponemos mirando su
+              // contenido.
+              const rutaGuardada =
+                arreglarExtension(
+                  rutaFinal
                 )
 
-              const savedName =
+              const nombreGuardado =
                 path.basename(
-                  savedPath
+                  rutaGuardada
                 )
 
               console.log(
                 '✅ Archivo recibido:',
-                savedPath
+                rutaGuardada
               )
 
               console.log(
                 '📦 Bytes:',
-                actualSize
+                tamanoReal
               )
 
 
-              reporter.complete(
-                actualSize
+              // Avisamos a la pantalla: 100 %.
+              reportero.complete(
+                tamanoReal
               )
 
 
+              // Notificación de Windows: "Archivo
+              // recibido".
               try {
 
                 new Notification({
@@ -2325,13 +3551,15 @@ function startHttpServer() {
                     '📦 Archivo recibido',
 
                   body:
-                    `${savedName} guardado en ${DOWNLOAD_DIR}`,
+                    `${nombreGuardado} guardado en ${CARPETA_DESCARGAS}`,
 
                 }).show()
 
               } catch {}
 
 
+              // Respondemos 200 al celular con el nombre
+              // final y el tamaño.
               res.writeHead(
                 200,
                 {
@@ -2347,13 +3575,13 @@ function startHttpServer() {
                     true,
 
                   fileName:
-                    savedName,
+                    nombreGuardado,
 
                   size:
-                    actualSize,
+                    tamanoReal,
 
                   path:
-                    savedPath,
+                    rutaGuardada,
 
                 })
               )
@@ -2362,8 +3590,12 @@ function startHttpServer() {
           )
 
 
+          // pipe = "conectar la manguera": lo que llega del
+          // celular va directo al archivo en el disco. Si
+          // el disco va lento, Node frena la lectura solo
+          // (backpressure).
           req.pipe(
-            writeStream
+            escritorDelArchivo
           )
 
           return
@@ -2372,9 +3604,17 @@ function startHttpServer() {
 
 
         // ====================================================
-        // DISCARD (el celular no quiere reintentar)
+        // DESCARTAR (el celular no quiere el archivo)
         // ====================================================
+        //
+        // El celular avisa que no va a descargar un archivo
+        // de la cola: porque el usuario tocó Rechazar o
+        // porque no quiso reintentar después de un error.
+        // Lo sacamos de la cola y lo mostramos en la
+        // pantalla de la PC.
 
+        // POST /discard/<id>: el celular no quiere el
+        // archivo.
         if (
           req.method ===
             'POST' &&
@@ -2383,33 +3623,55 @@ function startHttpServer() {
           )
         ) {
 
-          const id =
-            req.url.substring(
-              '/discard/'.length
+          // Separamos la dirección en partes.
+          const direccionDescarte =
+            new URL(
+              req.url,
+              `http://${req.headers.host}`
             )
 
+          // El id del archivo.
+          const id =
+            decodeURIComponent(
+              direccionDescarte.pathname.substring(
+                '/discard/'.length
+              )
+            )
+
+          // Si la dirección trae "?reason=rejected", el
+          // usuario del celular tocó "Rechazar".
+          const rejected =
+            direccionDescarte.searchParams.get(
+              'reason'
+            ) === 'rejected'
+
+          // Su cola.
           const list =
-            pendingByIP.get(
-              clientIP
+            colaPorCelular.get(
+              ipDelCelular
             ) ?? []
 
+          // Posición del archivo en la cola.
           const index =
             list.findIndex(
               file =>
                 file.id === id
             )
 
+          // Si está en la cola:
           if (
             index !== -1
           ) {
 
+            // Lo sacamos de la cola.
             const [file] =
               list.splice(
                 index,
                 1
               )
 
-            win?.webContents.send(
+            // Avisamos a la pantalla de la PC.
+            ventana?.webContents.send(
               'transfer-error',
               {
                 direction:
@@ -2417,7 +3679,7 @@ function startHttpServer() {
                 fileName:
                   file.fileName,
                 peer:
-                  clientIP,
+                  ipDelCelular,
                 total:
                   file.fileSize,
                 bytes:
@@ -2429,14 +3691,36 @@ function startHttpServer() {
                 eta:
                   null,
                 message:
-                  'El celular descartó el archivo después del error. Si querés, volvé a enviarlo.',
+                  rejected
+                    ? 'El celular rechazó el archivo.'
+                    : 'El celular descartó el archivo después del error. Si querés, volvé a enviarlo.',
                 canRetry:
                   false,
+                rejected,
               }
             )
 
+            // Si fue un rechazo, notificación de Windows.
+            if (
+              rejected
+            ) {
+
+              try {
+
+                new Notification({
+                  title:
+                    '🚫 Archivo rechazado',
+                  body:
+                    `El celular rechazó "${file.fileName}".`,
+                }).show()
+
+              } catch {}
+
+            }
+
           }
 
+          // Respondemos OK.
           res.writeHead(
             200,
             {
@@ -2458,9 +3742,14 @@ function startHttpServer() {
 
 
         // ====================================================
-        // DEFAULT
+        // CUALQUIER OTRA DIRECCIÓN
         // ====================================================
+        //
+        // Si piden una dirección que no existe, respondemos
+        // un texto simple.
 
+        // Cualquier otra dirección: respondemos un texto
+        // simple.
         res.writeHead(
           200,
           {
@@ -2477,7 +3766,9 @@ function startHttpServer() {
     )
 
 
-  httpServer.on(
+  // Si el servidor falla (ej: otra app ya usa el puerto),
+  // lo mostramos en la consola.
+  servidorHTTP.on(
     'error',
     error => {
 
@@ -2490,44 +3781,51 @@ function startHttpServer() {
   )
 
 
-  // IMPORTANTE para archivos grandes:
-  // Node corta por defecto cualquier request que dure más
-  // de 5 minutos (requestTimeout = 300000). Un video de
-  // 500 MB por Wi-Fi tarda más que eso, así que se cortaba.
-  // Lo desactivamos y, en su lugar, cada transferencia usa
-  // un timeout de INACTIVIDAD (INACTIVITY_TIMEOUT).
-  httpServer.requestTimeout =
+  // IMPORTANTE para archivos grandes: Node corta solo
+  // cualquier pedido de más de 5 minutos, y un video de 500
+  // MB por Wi-Fi tarda más. 0 = sin límite. En su lugar,
+  // cada transferencia usa el temporizador de inactividad
+  // (20 s sin datos).
+  servidorHTTP.requestTimeout =
     0
 
-  httpServer.timeout =
+  // Tampoco hay límite por conexión.
+  servidorHTTP.timeout =
     0
 
-  httpServer.headersTimeout =
+  // 60 s para recibir los encabezados del pedido.
+  servidorHTTP.headersTimeout =
     60000
 
-  httpServer.keepAliveTimeout =
+  // 5 s que se mantiene abierta una conexión sin usar.
+  servidorHTTP.keepAliveTimeout =
     5000
 
 
-  httpServer.listen(
-    WS_PORT,
+  // listen = empezar a escuchar en el puerto 53318.
+  // "0.0.0.0" = aceptar pedidos por CUALQUIER placa de red
+  // (Wi-Fi, cable...).
+  servidorHTTP.listen(
+    PUERTO_HTTP,
     '0.0.0.0',
     () => {
 
       console.log(
-        `🌐 HTTP activo en 0.0.0.0:${WS_PORT}`
+        `🌐 HTTP activo en 0.0.0.0:${PUERTO_HTTP}`
       )
 
       console.log(
-        `📁 Descargas: ${DOWNLOAD_DIR}`
+        `📁 Descargas: ${CARPETA_DESCARGAS}`
       )
 
-      serverStatus.tcp =
+      // Anotamos que el servidor de archivos arrancó...
+      estadoServidores.tcp =
         true
 
-      win?.webContents.send(
+      // ...y se lo avisamos a la pantalla (LED).
+      ventana?.webContents.send(
         'server-status',
-        serverStatus
+        estadoServidores
       )
 
     }
@@ -2537,29 +3835,42 @@ function startHttpServer() {
 
 
 // ============================================================
-// IPC
+// IPC (comunicación entre main y la pantalla)
 // ============================================================
+//
+// IPC = mensajes entre este archivo (main, que puede usar
+// la red y el disco) y la pantalla de React (que no puede
+// usar nada de eso, por seguridad).
+// ipcMain.handle(nombre, función) = "cuando la pantalla
+// pida X, ejecutá esto y devolvele el resultado".
+// El if con listenerCount evita registrar lo mismo dos
+// veces (Electron tira error si pasa).
 
-function setupIPC() {
+// Registra lo que la pantalla le puede pedir a main.
+function configurarIPC() {
 
+  // Si "get-device-info" todavía no está registrado (evita
+  // registrarlo dos veces, que da error)...
   if (
     ipcMain.listenerCount(
       'get-device-info'
     ) === 0
   ) {
 
+    // ...lo registramos: la pantalla pide los datos de la
+    // PC (nombre, IP, carpeta de descargas).
     ipcMain.handle(
       'get-device-info',
       () => ({
 
         alias:
-          DEVICE_ALIAS,
+          NOMBRE_DE_LA_PC,
 
         ip:
-          getLocalIP(),
+          obtenerMiIP(),
 
         downloadDir:
-          DOWNLOAD_DIR,
+          CARPETA_DESCARGAS,
 
       })
     )
@@ -2567,12 +3878,15 @@ function setupIPC() {
   }
 
 
+  // Lo mismo para "send-file".
   if (
     ipcMain.listenerCount(
       'send-file'
     ) === 0
   ) {
 
+    // La pantalla pide mandar un archivo a un celular.
+    // Recibe la ruta del archivo y la IP del celular.
     ipcMain.handle(
       'send-file',
       async (
@@ -2585,6 +3899,7 @@ function setupIPC() {
 
         try {
 
+          // Si falta la ruta o la IP → error.
           if (
             !filePath ||
             !targetIP
@@ -2600,6 +3915,7 @@ function setupIPC() {
           }
 
 
+          // Si el archivo no existe → error.
           if (
             !fs.existsSync(
               filePath
@@ -2616,12 +3932,14 @@ function setupIPC() {
           }
 
 
+          // Datos del archivo (tamaño, si es carpeta...).
           const stats =
             fs.statSync(
               filePath
             )
 
 
+          // Si es una carpeta y no un archivo → error.
           if (
             !stats.isFile()
           ) {
@@ -2636,22 +3954,27 @@ function setupIPC() {
           }
 
 
+          // Solo el nombre, sin la carpeta.
           const fileName =
             path.basename(
               filePath
             )
 
 
+          // Id único: la hora actual + letras al azar.
           const id =
             `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
 
+          // La cola de ese celular (o una vacía si no
+          // tenía).
           const list =
-            pendingByIP.get(
+            colaPorCelular.get(
               targetIP
             ) ?? []
 
 
+          // Agregamos el archivo a la cola.
           list.push({
 
             id,
@@ -2666,7 +3989,9 @@ function setupIPC() {
           })
 
 
-          pendingByIP.set(
+          // Guardamos la cola. El celular lo va a ver en su
+          // próxima pregunta a /incoming (menos de 1 s).
+          colaPorCelular.set(
             targetIP,
             list
           )
@@ -2680,7 +4005,9 @@ function setupIPC() {
           )
 
 
-          win?.webContents.send(
+          // Avisamos a la pantalla: "en cola" (barra en 0
+          // %).
+          ventana?.webContents.send(
             'transfer-queued',
             {
 
@@ -2702,6 +4029,7 @@ function setupIPC() {
 
 
         } catch (
+          // Si algo falla, devolvemos "Error interno".
           error
         ) {
 
@@ -2731,41 +4059,55 @@ function setupIPC() {
 // CREAR VENTANA
 // ============================================================
 
-function createWindow() {
+// Crea la ventana de la app.
+function crearVentana() {
 
-  win =
+  // Nueva ventana:
+  ventana =
     new BrowserWindow({
 
+      // Ancho inicial (en píxeles)
       width:
         960,
 
+      // Alto inicial
       height:
         820,
 
+      // Ancho mínimo
       minWidth:
         520,
 
+      // Alto mínimo
       minHeight:
         600,
 
+      // Título
       title:
         'LocalSend',
 
-      // Oculta el menú "File / Edit / View" (en inglés).
+      // Oculta el menú "File / Edit / View" (en inglés)
       autoHideMenuBar:
         true,
 
+      // SEGURIDAD: si alguien lograra meter código
+      // malicioso en la pantalla, no podría tocar tus
+      // archivos.
       webPreferences: {
 
+        // Archivo "puente" que le da a React solo las
+        // funciones que necesita
         preload:
           path.join(
             __dirname,
             'preload.mjs'
           ),
 
+        // React y Electron viven separados
         contextIsolation:
           true,
 
+        // React NO puede usar Node (ni el disco ni la red)
         nodeIntegration:
           false,
 
@@ -2774,17 +4116,21 @@ function createWindow() {
     })
 
 
+  // En desarrollo (npm run dev) cargamos la pantalla desde
+  // Vite, que se recarga sola al guardar...
   if (
     VITE_DEV_SERVER_URL
   ) {
 
-    win.loadURL(
+    ventana.loadURL(
       VITE_DEV_SERVER_URL
     )
 
   } else {
+  // ...y en el .exe la cargamos de los archivos ya
+  // compilados (dist/index.html).
 
-    win.loadFile(
+    ventana.loadFile(
       path.join(
         RENDERER_DIST,
         'index.html'
@@ -2794,24 +4140,27 @@ function createWindow() {
   }
 
 
-  win.webContents.on(
+  // Cuando la pantalla terminó de cargar, le mandamos el
+  // estado de los servidores (para el LED verde), la IP, el
+  // puerto y el nombre.
+  ventana.webContents.on(
     'did-finish-load',
     () => {
 
-      win?.webContents.send(
+      ventana?.webContents.send(
         'server-status',
         {
 
-          ...serverStatus,
+          ...estadoServidores,
 
           ip:
-            getLocalIP(),
+            obtenerMiIP(),
 
           port:
-            WS_PORT,
+            PUERTO_HTTP,
 
           alias:
-            DEVICE_ALIAS,
+            NOMBRE_DE_LA_PC,
 
         }
       )
@@ -2823,31 +4172,46 @@ function createWindow() {
 
 
 // ============================================================
-// APP
+// ARRANQUE DE LA APP
 // ============================================================
+//
+// app.whenReady() espera a que Electron esté listo y
+// después prende todo en orden: los mensajes con la
+// pantalla (IPC), arreglar descargas viejas, la ventana, el
+// servidor UDP, el servidor HTTP y la limpieza de
+// dispositivos cada 1 s.
 
+// Cuando Electron está listo, prendemos todo en orden:
 app.whenReady()
   .then(
     () => {
 
-      setupIPC()
+      // 1) Lo que la pantalla puede pedir
+      configurarIPC()
 
-      fixOldDownloads()
+      // 2) Arreglar descargas viejas sin extensión
+      arreglarDescargasViejas()
 
-      createWindow()
+      // 3) La ventana
+      crearVentana()
 
-      startUDPServer()
+      // 4) Buscar dispositivos (UDP)
+      iniciarServidorUDP()
 
-      startHttpServer()
+      // 5) Servidor de archivos (HTTP)
+      iniciarServidorHTTP()
 
 
-      cleanupTimer =
+      // 6) Cada 1 s, borrar los celulares que se fueron
+      relojDeLimpieza =
         setInterval(
-          cleanupStale,
+          borrarCelularesInactivos,
           1000
         )
 
 
+      // Mac: si tocás el ícono y no hay ventanas abiertas,
+      // se crea una nueva.
       app.on(
         'activate',
         () => {
@@ -2857,7 +4221,7 @@ app.whenReady()
               .length === 0
           ) {
 
-            createWindow()
+            crearVentana()
 
           }
 
@@ -2868,6 +4232,9 @@ app.whenReady()
   )
 
 
+// Al cerrar todas las ventanas se cierra la app. En Mac
+// ("darwin") las apps siguen abiertas sin ventanas; por eso
+// la excepción.
 app.on(
   'window-all-closed',
   () => {
@@ -2885,39 +4252,45 @@ app.on(
 )
 
 
+// Antes de salir, apagamos todo para liberar los puertos
+// 53317 y 53318:
 app.on(
   'before-quit',
   () => {
 
+    // Apagamos el reloj del aviso "acá estoy"
     if (
-      beaconTimer
+      relojDeAviso
     ) {
 
       clearInterval(
-        beaconTimer
+        relojDeAviso
       )
 
     }
 
 
+    // Apagamos el reloj de limpieza
     if (
-      cleanupTimer
+      relojDeLimpieza
     ) {
 
       clearInterval(
-        cleanupTimer
+        relojDeLimpieza
       )
 
     }
 
 
+    // Cerramos el servidor UDP
     try {
-      udpServer?.close()
+      servidorUDP?.close()
     } catch {}
 
 
+    // Cerramos el servidor HTTP
     try {
-      httpServer?.close()
+      servidorHTTP?.close()
     } catch {}
 
   }

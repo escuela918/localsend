@@ -11,6 +11,8 @@ declare global {
     eta: number | null
     message?: string
     canRetry?: boolean
+    // El receptor tocó "Rechazar" (no es un error de red).
+    rejected?: boolean
   }
 
   interface Window {

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "01 · Arquitectura e inicio de la app",
+  "description": "Imports, configuración y arranque del proceso main de Electron",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2,
+          "character": 1
+        },
+        "end": {
+          "line": 22,
+          "character": 200
+        }
+      },
+      "title": "Los imports (las herramientas que usamos)",
+      "description": "## Qué hace cada línea\n- **L2–8** de `electron` traemos:\n  - `app` → controla el ciclo de vida (cuando arranca, cuando se cierra).\n  - `BrowserWindow` → crea la ventana.\n  - `dialog` → muestra cuadros de diálogo nativos (el de **Aceptar/Rechazar**).\n  - `ipcMain` → recibe mensajes de React (IPC).\n  - `Notification` → notificaciones de Windows.\n- **L10–12** `randomUUID` de `node:crypto` → genera el **token** del handshake.\n- **L14–16** `fileURLToPath` → convierte una URL de archivo en una ruta normal.\n- **L18** `path` → arma rutas de archivos sin pelear con `\\` o `/`.\n- **L19** `dgram` → **sockets UDP** (descubrimiento).\n- **L20** `http` → **servidor HTTP** (transferencias).\n- **L21** `fs` → **file system**: leer y escribir el disco.\n- **L22** `os` → datos del sistema: nombre de la PC, carpeta del usuario, placas de red.\n\n### 📖 Palabras técnicas\n- **import**: trae código de otro módulo para usarlo acá.\n- **Módulo**: archivo o librería con funciones reutilizables.\n- **`node:`**: el prefijo indica que es un módulo **que ya viene con Node.js** (no hay que instalarlo).\n- **Proceso main**: este archivo corre en Node.js, **no** en la ventana. Por eso puede usar `fs`, `dgram` y `http`.\n\n### 🎤 Qué decirle al profe\n> \"No usamos librerías externas para la red: `dgram` para UDP y `http` para HTTP vienen con Node.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 01 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 62,
+          "character": 1
+        },
+        "end": {
+          "line": 108,
+          "character": 200
+        }
+      },
+      "title": "La configuración (constantes)",
+      "description": "## Qué hace cada línea\n- **L62** `UDP_PORT = 53317` → puerto del descubrimiento.\n- **L67** `HTTP_PORT = 53318` → puerto del servidor de archivos.\n- **L70** `DEVICE_ALIAS` → nombre que mostramos: `Desktop-` + nombre de la PC (`os.hostname()`).\n- **L73** `DOWNLOAD_DIR` → carpeta donde se guarda: `Descargas/LocalSend`.\n- **L82** `STALE_MS = 5000` → **TTL**: si un celular pasa 5 s sin dar señales, lo borramos.\n- **L87** `BEACON_INTERVAL = 1000` → anunciamos la PC cada 1 s.\n- **L92** `INACTIVITY_TIMEOUT = 20000` → si una transferencia no avanza en 20 s, se cortó.\n- **L97** `PROGRESS_INTERVAL = 200` → mandamos el progreso a la pantalla como mucho 5 veces por segundo.\n- **L102** `ACCEPT_TIMEOUT = 60000` → el usuario tiene 60 s para aceptar.\n- **L107** `TOKEN_TTL` → el token dura 2 minutos.\n\n### 📖 Palabras técnicas\n- **const**: variable que no se puede reasignar.\n- **Milisegundos (ms)**: 1000 ms = 1 segundo. JavaScript mide el tiempo así.\n- **TTL (Time To Live)**: \"tiempo de vida\". Cuánto tiempo algo se considera válido sin renovarse.\n- **Template string** (``Desktop-${...}``): texto con variables adentro.\n\n### 🎤 Qué decirle al profe\n> \"Pusimos todos los tiempos como constantes arriba para poder ajustarlos en un solo lugar. El beacon es de 1 s y el TTL de 5 s: así aparece en menos de 5 s y desaparece a los 5 s de perder la señal.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 01 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 3380,
+          "character": 1
+        },
+        "end": {
+          "line": 3399,
+          "character": 200
+        }
+      },
+      "title": "El arranque de la app",
+      "description": "## Qué hace cada línea\n- **L3380** `app.whenReady()` → espera a que Electron esté listo. Devuelve una **promesa**.\n- **L3381** `.then(() => {...})` → cuando está listo, ejecuta esto **en orden**:\n- **L3384** `setupIPC()` → registra las funciones que React puede llamar.\n- **L3386** `fixOldDownloads()` → arregla archivos viejos que quedaron sin extensión.\n- **L3388** `createWindow()` → abre la ventana con React.\n- **L3390** `startUDPServer()` → empieza a escuchar y mandar beacons UDP.\n- **L3392** `startHttpServer()` → levanta el servidor de archivos.\n- **L3395–3399** `setInterval(cleanupStale, 1000)` → cada 1 s revisa qué celulares dejaron de dar señales.\n\n### 📖 Palabras técnicas\n- **Promesa (Promise)**: un valor que va a estar disponible **en el futuro**. Con `.then` o `await` decís \"cuando esté, hacé esto\".\n- **setInterval(función, ms)**: ejecuta una función **cada** cierta cantidad de ms, para siempre.\n\n### 🎤 Qué decirle al profe\n> \"Al arrancar registramos el IPC, creamos la ventana y levantamos los dos servidores: UDP para descubrir y HTTP para transferir.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 01 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

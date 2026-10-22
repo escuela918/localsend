@@ -1,380 +1,404 @@
-import { app, BrowserWindow, ipcMain, Notification } from "electron";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import dgram from "node:dgram";
-import http from "node:http";
-import fs from "node:fs";
-import os from "node:os";
-const __dirname$1 = path.dirname(
-  fileURLToPath(import.meta.url)
+import { app as j, BrowserWindow as te, ipcMain as L, Notification as P, dialog as K } from "electron";
+import { randomUUID as de } from "node:crypto";
+import { fileURLToPath as pe } from "node:url";
+import g from "node:path";
+import ue from "node:dgram";
+import fe from "node:http";
+import h from "node:fs";
+import W from "node:os";
+const oe = g.dirname(
+  pe(import.meta.url)
 );
-process.env.APP_ROOT = path.join(
-  __dirname$1,
+process.env.APP_ROOT = g.join(
+  oe,
   ".."
 );
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const RENDERER_DIST = path.join(
+const U = process.env.VITE_DEV_SERVER_URL, ne = g.join(
   process.env.APP_ROOT,
   "dist"
 );
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(
+process.env.VITE_PUBLIC = U ? g.join(
   process.env.APP_ROOT,
   "public"
-) : RENDERER_DIST;
-const UDP_PORT = 53317;
-const WS_PORT = 53318;
-const DEVICE_ALIAS = `Desktop-${os.hostname()}`;
-const DOWNLOAD_DIR = path.join(
-  os.homedir(),
+) : ne;
+const J = 53317, D = 53318, z = `Desktop-${W.hostname()}`, A = g.join(
+  W.homedir(),
   "Downloads",
   "LocalSend"
-);
-const STALE_MS = 5e3;
-const BEACON_INTERVAL = 1e3;
-const INACTIVITY_TIMEOUT = 2e4;
-const PROGRESS_INTERVAL = 200;
-let win = null;
-let udpServer = null;
-let httpServer = null;
-let cleanupTimer = null;
-let beaconTimer = null;
-const serverStatus = {
-  udp: false,
-  tcp: false
+), me = 5e3, he = 1e3, H = 2e4, ge = 200, ie = 6e4, ye = 2 * 60 * 1e3;
+let n = null, S = null, T = null, V = null, B = null;
+const _ = {
+  udp: !1,
+  tcp: !1
 };
-if (!fs.existsSync(
-  DOWNLOAD_DIR
-)) {
-  fs.mkdirSync(
-    DOWNLOAD_DIR,
-    {
-      recursive: true
-    }
+h.existsSync(
+  A
+) || h.mkdirSync(
+  A,
+  {
+    recursive: !0
+  }
+);
+const N = /* @__PURE__ */ new Map(), I = /* @__PURE__ */ new Map();
+function re(e) {
+  const t = N.get(
+    e
   );
+  t && (t.lastSeen = Date.now());
 }
-const mobileDevices = /* @__PURE__ */ new Map();
-const activeTransferIPs = /* @__PURE__ */ new Map();
-function markSeen(ip) {
-  const device = mobileDevices.get(
-    ip
+const k = /* @__PURE__ */ new Map(), F = /* @__PURE__ */ new Map();
+async function we(e, t, o, i) {
+  n && (n.isMinimized() && n.restore(), n.show(), n.focus(), n.flashFrame(
+    !0
+  ));
+  try {
+    new P({
+      title: "📥 Archivo entrante",
+      body: `${o} quiere enviarte "${e}"`
+    }).show();
+  } catch {
+  }
+  const a = new AbortController();
+  let p = "rejected";
+  const v = setTimeout(
+    () => {
+      p = "timeout", a.abort();
+    },
+    ie
+  ), E = () => {
+    p = "cancelled", a.abort();
+  };
+  i.addEventListener(
+    "abort",
+    E
   );
-  if (device) {
-    device.lastSeen = Date.now();
+  const x = {
+    // Ícono de pregunta
+    type: "question",
+    // Título de la ventanita
+    title: "Archivo entrante",
+    // Texto principal
+    message: `${o} quiere enviarte un archivo`,
+    // Texto chico: nombre, tamaño y dónde se va a guardar
+    detail: `${e}
+${Se(t)}
+
+Se guardará en ${A}`,
+    // Botones: el 0 es Aceptar y el 1 es Rechazar
+    buttons: [
+      "Aceptar",
+      "Rechazar"
+    ],
+    // Botón marcado por defecto (Enter = Aceptar)
+    defaultId: 0,
+    // Botón que cuenta si cierran con Esc o la X
+    // (Rechazar)
+    cancelId: 1,
+    // Mostrar los botones como botones normales (en
+    // Windows)
+    noLink: !0,
+    // Conecta el cartel con el "botón de cancelar" para
+    // cerrarlo desde el código
+    signal: a.signal
+  };
+  try {
+    const { response: f } = n ? await K.showMessageBox(n, x) : await K.showMessageBox(x);
+    return a.signal.aborted ? p : f === 0 ? "accepted" : "rejected";
+  } finally {
+    clearTimeout(
+      v
+    ), i.removeEventListener(
+      "abort",
+      E
+    ), n == null || n.flashFrame(
+      !1
+    );
   }
 }
-const pendingByIP = /* @__PURE__ */ new Map();
-const VIRTUAL_ADAPTER = /virtual|vmware|vbox|hyper-v|vethernet|wsl|docker|loopback|tailscale|zerotier|hamachi/i;
-function getLocalInterfaces() {
-  const result = [];
+function Se(e) {
+  if (!e)
+    return "0 B";
+  const t = ["B", "KB", "MB", "GB", "TB"], o = Math.min(
+    t.length - 1,
+    Math.floor(Math.log(e) / Math.log(1024))
+  );
+  return `${(e / Math.pow(1024, o)).toFixed(o === 0 ? 0 : 1)} ${t[o]}`;
+}
+const X = /virtual|vmware|vbox|hyper-v|vethernet|wsl|docker|loopback|tailscale|zerotier|hamachi/i;
+function ae() {
+  const e = [];
   for (const [
-    name,
-    infos
+    t,
+    o
   ] of Object.entries(
-    os.networkInterfaces()
-  )) {
-    for (const info of infos ?? []) {
-      if (info.family === "IPv4" && !info.internal) {
-        result.push({
-          name,
-          address: info.address,
-          netmask: info.netmask
-        });
-      }
-    }
-  }
-  return result.sort(
-    (a, b) => Number(VIRTUAL_ADAPTER.test(a.name)) - Number(VIRTUAL_ADAPTER.test(b.name))
+    W.networkInterfaces()
+  ))
+    for (const i of o ?? [])
+      i.family === "IPv4" && !i.internal && e.push({
+        name: t,
+        address: i.address,
+        netmask: i.netmask
+      });
+  return e.sort(
+    (t, o) => Number(X.test(t.name)) - Number(X.test(o.name))
   );
 }
-function getLocalIP() {
-  var _a;
-  return ((_a = getLocalInterfaces()[0]) == null ? void 0 : _a.address) ?? "127.0.0.1";
+function M() {
+  var e;
+  return ((e = ae()[0]) == null ? void 0 : e.address) ?? "127.0.0.1";
 }
-function getBroadcastAddresses() {
-  const addresses = /* @__PURE__ */ new Set([
+function ve() {
+  const e = /* @__PURE__ */ new Set([
     "255.255.255.255"
   ]);
-  for (const iface of getLocalInterfaces()) {
-    const ip = iface.address.split(".").map(Number);
-    const mask = iface.netmask.split(".").map(Number);
-    addresses.add(
-      ip.map(
-        (part, i) => part | ~mask[i] & 255
+  for (const t of ae()) {
+    const o = t.address.split(".").map(Number), i = t.netmask.split(".").map(Number);
+    e.add(
+      o.map(
+        (a, p) => a | ~i[p] & 255
       ).join(".")
     );
   }
-  return [...addresses];
+  return [...e];
 }
-function createProgressReporter(direction, fileName, total, peer, initialBytes = 0) {
-  const startedAt = Date.now();
-  activeTransferIPs.set(
-    peer,
-    (activeTransferIPs.get(peer) ?? 0) + 1
+function Q(e, t, o, i, a = 0) {
+  const p = Date.now();
+  I.set(
+    i,
+    (I.get(i) ?? 0) + 1
   );
-  let ended = false;
-  const end = () => {
-    if (ended) {
+  let v = !1;
+  const E = () => {
+    if (v)
       return;
-    }
-    ended = true;
-    const count = (activeTransferIPs.get(peer) ?? 1) - 1;
-    if (count <= 0) {
-      activeTransferIPs.delete(peer);
-    } else {
-      activeTransferIPs.set(peer, count);
-    }
-    markSeen(
-      peer
+    v = !0;
+    const r = (I.get(i) ?? 1) - 1;
+    r <= 0 ? I.delete(i) : I.set(i, r), re(
+      i
     );
   };
-  let lastEmit = 0;
-  let lastBytes = initialBytes;
-  let lastTime = startedAt;
-  let speed = 0;
-  let bytes = initialBytes;
-  const payload = () => ({
-    direction,
-    fileName,
-    peer,
-    total,
-    bytes,
-    progress: total > 0 ? Math.min(100, Math.floor(bytes / total * 100)) : 0,
-    // Bytes por segundo
-    speed,
-    // Segundos restantes
-    eta: speed > 0 && total > 0 ? Math.max(0, Math.round((total - bytes) / speed)) : null
+  let x = 0, f = a, d = p, c = 0, s = a;
+  const m = () => ({
+    direction: e,
+    fileName: t,
+    peer: i,
+    total: o,
+    bytes: s,
+    // Porcentaje: bytes / total × 100, redondeado para
+    // abajo y sin pasar de 100.
+    progress: o > 0 ? Math.min(100, Math.floor(s / o * 100)) : 0,
+    // Velocidad en bytes por segundo
+    speed: c,
+    // ETA = segundos que faltan = lo que falta /
+    // velocidad. null si todavía no hay velocidad.
+    eta: c > 0 && o > 0 ? Math.max(0, Math.round((o - s) / c)) : null
   });
   return {
-    update(currentBytes) {
-      bytes = currentBytes;
-      const now = Date.now();
-      if (now - lastEmit < PROGRESS_INTERVAL) {
+    // update(): se llama con cada pedacito (chunk) del
+    // archivo.
+    update(r) {
+      s = r;
+      const l = Date.now();
+      if (l - x < ge)
         return;
-      }
-      const instant = (bytes - lastBytes) * 1e3 / Math.max(1, now - lastTime);
-      speed = speed === 0 ? instant : speed * 0.7 + instant * 0.3;
-      lastBytes = bytes;
-      lastTime = now;
-      lastEmit = now;
-      win == null ? void 0 : win.webContents.send(
+      const w = (s - f) * 1e3 / Math.max(1, l - d);
+      c = c === 0 ? w : c * 0.7 + w * 0.3, f = s, d = l, x = l, n == null || n.webContents.send(
         "transfer-progress",
-        payload()
+        m()
       );
     },
-    complete(finalBytes) {
-      end();
-      bytes = finalBytes;
-      const seconds = Math.max(1e-3, (Date.now() - startedAt) / 1e3);
-      speed = (finalBytes - initialBytes) / seconds;
-      win == null ? void 0 : win.webContents.send(
+    // complete(): la transferencia terminó bien.
+    complete(r) {
+      E(), s = r;
+      const l = Math.max(1e-3, (Date.now() - p) / 1e3);
+      c = (r - a) / l, n == null || n.webContents.send(
         "transfer-complete",
         {
-          ...payload(),
-          total: total || finalBytes,
+          ...m(),
+          total: o || r,
           progress: 100,
           eta: 0,
-          size: finalBytes
+          size: r
         }
       );
     },
-    // El progreso NO se pierde: React recibe en qué
-    // porcentaje quedó y el motivo del error.
-    fail(message, canRetry) {
-      end();
-      win == null ? void 0 : win.webContents.send(
+    // fail(): se cortó. Avisa el motivo y en qué % quedó;
+    // la barra NO se borra. canRetry = si se puede
+    // reintentar.
+    fail(r, l) {
+      E(), n == null || n.webContents.send(
         "transfer-error",
         {
-          ...payload(),
+          ...m(),
           speed: 0,
           eta: null,
-          message,
-          canRetry
+          message: r,
+          canRetry: l
         }
       );
       try {
-        new Notification({
+        new P({
           title: "❌ Transferencia interrumpida",
-          body: `${fileName}: ${message}`
+          body: `${t}: ${r}`
         }).show();
       } catch {
       }
     }
   };
 }
-function cleanupStale() {
-  const now = Date.now();
+function se() {
+  const e = Date.now();
   for (const [
-    ip,
-    device
-  ] of mobileDevices) {
-    if (activeTransferIPs.has(
-      ip
+    t,
+    o
+  ] of N) {
+    if (I.has(
+      t
     )) {
-      device.lastSeen = now;
+      o.lastSeen = e;
       continue;
     }
-    if (now - device.lastSeen > STALE_MS) {
-      console.log(
-        "📴 Dispositivo desconectado:",
-        device.alias,
-        ip
-      );
-      mobileDevices.delete(
-        ip
-      );
-      win == null ? void 0 : win.webContents.send(
-        "device-removed",
-        device
-      );
-    }
+    e - o.lastSeen > me && (console.log(
+      "📴 Dispositivo desconectado:",
+      o.alias,
+      t
+    ), N.delete(
+      t
+    ), n == null || n.webContents.send(
+      "device-removed",
+      o
+    ));
   }
 }
-function startUDPServer() {
-  if (udpServer) {
-    return;
-  }
-  udpServer = dgram.createSocket({
+function be() {
+  S || (S = ue.createSocket({
+    // udp4 = usamos direcciones IPv4
     type: "udp4",
-    // Permite reabrir la app sin esperar a que
-    // Windows libere el puerto.
-    reuseAddr: true
-  });
-  udpServer.on(
+    // Si cerrás y abrís la app enseguida, Windows a veces
+    // sigue teniendo el puerto "ocupado". Con esto lo
+    // podemos usar igual.
+    reuseAddr: !0
+  }), S.on(
     "error",
-    (error) => {
+    (e) => {
       console.error(
         "UDP error:",
-        error
+        e
       );
     }
-  );
-  udpServer.on(
+  ), S.on(
     "message",
-    (msg, rinfo) => {
+    (e, t) => {
       try {
-        const data = JSON.parse(
-          msg.toString()
-        );
-        const myIP = getLocalIP();
-        if (rinfo.address === myIP) {
+        const o = JSON.parse(
+          e.toString()
+        ), i = M();
+        if (t.address === i)
           return;
-        }
-        if (data.deviceType === "mobile" && data.alias) {
-          const device = {
-            alias: data.alias,
-            ip: rinfo.address,
-            port: data.port ?? WS_PORT,
+        if (o.deviceType === "mobile" && o.alias) {
+          const a = {
+            alias: o.alias,
+            ip: t.address,
+            port: o.port ?? D,
             deviceType: "mobile",
             lastSeen: Date.now()
-          };
-          const isNew = !mobileDevices.has(
-            rinfo.address
+          }, p = !N.has(
+            t.address
           );
-          mobileDevices.set(
-            rinfo.address,
-            device
-          );
-          win == null ? void 0 : win.webContents.send(
+          N.set(
+            t.address,
+            a
+          ), n == null || n.webContents.send(
             "device-found",
-            device
+            a
+          ), p && Y(
+            t.address
           );
-          if (isNew) {
-            sendBeacon(
-              rinfo.address
-            );
-          }
         }
       } catch {
       }
     }
-  );
-  udpServer.bind(
-    UDP_PORT,
+  ), S.bind(
+    J,
     () => {
       try {
-        udpServer == null ? void 0 : udpServer.setBroadcast(
-          true
+        S == null || S.setBroadcast(
+          !0
         );
       } catch {
       }
       console.log(
-        `📡 UDP activo en ${UDP_PORT}`
-      );
-      serverStatus.udp = true;
-      win == null ? void 0 : win.webContents.send(
+        `📡 UDP activo en ${J}`
+      ), _.udp = !0, n == null || n.webContents.send(
         "server-status",
-        serverStatus
+        _
       );
     }
-  );
-  beaconTimer = setInterval(
+  ), B = setInterval(
     () => {
-      for (const address of getBroadcastAddresses()) {
-        sendBeacon(
-          address
+      for (const e of ve())
+        Y(
+          e
         );
-      }
     },
-    BEACON_INTERVAL
-  );
+    he
+  ));
 }
-function sendBeacon(address) {
-  if (!udpServer) {
+function Y(e) {
+  if (!S)
     return;
-  }
-  const beacon = Buffer.from(
+  const t = Buffer.from(
     JSON.stringify({
+      // Para que sepan que es LocalSend
       service: "LocalSend",
-      alias: DEVICE_ALIAS,
-      ip: getLocalIP(),
-      port: WS_PORT,
+      // Nombre de la PC
+      alias: z,
+      // IP de la PC
+      ip: M(),
+      // Puerto donde recibimos archivos (53318)
+      port: D,
+      // Somos una PC
       deviceType: "desktop"
     })
   );
   try {
-    udpServer.send(
-      beacon,
+    S.send(
+      t,
       0,
-      beacon.length,
-      UDP_PORT,
-      address
+      t.length,
+      J,
+      e
     );
   } catch {
   }
 }
-function getUniquePath(filePath) {
-  if (!fs.existsSync(
-    filePath
-  )) {
-    return filePath;
-  }
-  const ext = path.extname(
-    filePath
+function ce(e) {
+  if (!h.existsSync(
+    e
+  ))
+    return e;
+  const t = g.extname(
+    e
+  ), o = g.basename(
+    e,
+    t
+  ), i = g.dirname(
+    e
   );
-  const base = path.basename(
-    filePath,
-    ext
+  let a = 1, p = g.join(
+    i,
+    `${o}(${a})${t}`
   );
-  const dir = path.dirname(
-    filePath
-  );
-  let i = 1;
-  let candidate = path.join(
-    dir,
-    `${base}(${i})${ext}`
-  );
-  while (fs.existsSync(
-    candidate
-  )) {
-    i++;
-    candidate = path.join(
-      dir,
-      `${base}(${i})${ext}`
+  for (; h.existsSync(
+    p
+  ); )
+    a++, p = g.join(
+      i,
+      `${o}(${a})${t}`
     );
-  }
-  return candidate;
+  return p;
 }
-const MIME_TO_EXT = {
+const Ce = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
   "image/gif": ".gif",
@@ -401,218 +425,183 @@ const MIME_TO_EXT = {
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
   "application/vnd.android.package-archive": ".apk"
 };
-function ensureExtension(fileName, contentType) {
-  if (path.extname(
-    fileName
-  )) {
-    return fileName;
-  }
-  const mime = (contentType ?? "").split(";")[0].trim().toLowerCase();
-  const ext = MIME_TO_EXT[mime];
-  return ext ? fileName + ext : fileName;
+function Z(e, t) {
+  if (g.extname(
+    e
+  ))
+    return e;
+  const o = (t ?? "").split(";")[0].trim().toLowerCase(), i = Ce[o];
+  return i ? e + i : e;
 }
-function detectExtension(filePath) {
-  const header = Buffer.alloc(32);
-  let read = 0;
+function Te(e) {
+  const t = Buffer.alloc(32);
+  let o = 0;
   try {
-    const fd = fs.openSync(
-      filePath,
+    const p = h.openSync(
+      e,
       "r"
     );
-    read = fs.readSync(
-      fd,
-      header,
+    o = h.readSync(
+      p,
+      t,
       0,
       32,
       0
-    );
-    fs.closeSync(
-      fd
+    ), h.closeSync(
+      p
     );
   } catch {
     return "";
   }
-  const h = header.subarray(0, read);
-  const ascii = (start, end) => h.toString("latin1", start, end);
-  if (h[0] === 255 && h[1] === 216 && h[2] === 255) return ".jpg";
-  if (h[0] === 137 && ascii(1, 4) === "PNG") return ".png";
-  if (ascii(0, 4) === "GIF8") return ".gif";
-  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return ".webp";
-  if (ascii(4, 8) === "ftyp") {
-    const brand = ascii(8, 12);
-    if (/^(heic|heix|hevc|mif1|msf1)$/.test(brand)) return ".heic";
-    if (brand === "qt  ") return ".mov";
-    if (brand.startsWith("3g")) return ".3gp";
-    if (brand.startsWith("M4A")) return ".m4a";
-    return ".mp4";
+  const i = t.subarray(0, o), a = (p, v) => i.toString("latin1", p, v);
+  if (i[0] === 255 && i[1] === 216 && i[2] === 255) return ".jpg";
+  if (i[0] === 137 && a(1, 4) === "PNG") return ".png";
+  if (a(0, 4) === "GIF8") return ".gif";
+  if (a(0, 4) === "RIFF" && a(8, 12) === "WEBP") return ".webp";
+  if (a(4, 8) === "ftyp") {
+    const p = a(8, 12);
+    return /^(heic|heix|hevc|mif1|msf1)$/.test(p) ? ".heic" : p === "qt  " ? ".mov" : p.startsWith("3g") ? ".3gp" : p.startsWith("M4A") ? ".m4a" : ".mp4";
   }
-  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE") return ".wav";
-  if (ascii(0, 4) === "RIFF" && ascii(8, 11) === "AVI") return ".avi";
-  if (h[0] === 26 && h[1] === 69 && h[2] === 223 && h[3] === 163) return ".mkv";
-  if (ascii(0, 3) === "ID3" || h[0] === 255 && (h[1] & 224) === 224) return ".mp3";
-  if (ascii(0, 4) === "OggS") return ".ogg";
-  if (ascii(0, 4) === "%PDF") return ".pdf";
-  if (h[0] === 80 && h[1] === 75 && h[2] === 3 && h[3] === 4) return ".zip";
-  return "";
+  return a(0, 4) === "RIFF" && a(8, 12) === "WAVE" ? ".wav" : a(0, 4) === "RIFF" && a(8, 11) === "AVI" ? ".avi" : i[0] === 26 && i[1] === 69 && i[2] === 223 && i[3] === 163 ? ".mkv" : a(0, 3) === "ID3" || i[0] === 255 && (i[1] & 224) === 224 ? ".mp3" : a(0, 4) === "OggS" ? ".ogg" : a(0, 4) === "%PDF" ? ".pdf" : i[0] === 80 && i[1] === 75 && i[2] === 3 && i[3] === 4 ? ".zip" : "";
 }
-function fixMissingExtension(filePath) {
-  if (path.extname(
-    filePath
-  )) {
-    return filePath;
-  }
-  const ext = detectExtension(
-    filePath
+function le(e) {
+  if (g.extname(
+    e
+  ))
+    return e;
+  const t = Te(
+    e
   );
-  if (!ext) {
-    return filePath;
-  }
-  const newPath = getUniquePath(
-    filePath + ext
+  if (!t)
+    return e;
+  const o = ce(
+    e + t
   );
   try {
-    fs.renameSync(
-      filePath,
-      newPath
-    );
-    console.log(
+    return h.renameSync(
+      e,
+      o
+    ), console.log(
       "🏷️ Extensión agregada:",
-      path.basename(newPath)
-    );
-    return newPath;
+      g.basename(o)
+    ), o;
   } catch {
-    return filePath;
+    return e;
   }
 }
-function fixOldDownloads() {
+function Ne() {
   try {
-    for (const name of fs.readdirSync(
-      DOWNLOAD_DIR
+    for (const e of h.readdirSync(
+      A
     )) {
-      const fullPath = path.join(
-        DOWNLOAD_DIR,
-        name
+      const t = g.join(
+        A,
+        e
       );
-      if (fs.statSync(fullPath).isFile() && fs.statSync(fullPath).size > 0) {
-        fixMissingExtension(
-          fullPath
-        );
-      }
+      h.statSync(t).isFile() && h.statSync(t).size > 0 && le(
+        t
+      );
     }
-  } catch (error) {
+  } catch (e) {
     console.error(
       "No se pudieron revisar las descargas:",
-      error
+      e
     );
   }
 }
-function sanitizeFileName(name) {
-  return name.replace(
+function q(e) {
+  return e.replace(
     /[<>:"/\\|?*\x00-\x1F]/g,
     "_"
   ).trim() || `archivo-${Date.now()}`;
 }
-function startHttpServer() {
-  if (httpServer) {
-    return;
-  }
-  httpServer = http.createServer(
-    (req, res) => {
-      var _a, _b, _c, _d, _e;
-      const clientIP = ((_a = req.socket.remoteAddress) == null ? void 0 : _a.replace(
+function Ae() {
+  T || (T = fe.createServer(
+    (e, t) => {
+      var a, p, v, E, x;
+      const o = ((a = e.socket.remoteAddress) == null ? void 0 : a.replace(
         /^::ffff:/,
         ""
       ).replace(
         /^.*:/,
         ""
       )) || "unknown";
-      markSeen(
-        clientIP
+      re(
+        o
       );
-      const serverIP = ((_b = req.socket.localAddress) == null ? void 0 : _b.replace(
+      const i = ((p = e.socket.localAddress) == null ? void 0 : p.replace(
         /^::ffff:/,
         ""
-      )) || getLocalIP();
-      if (req.method === "GET" && req.url === "/ping") {
-        res.writeHead(
+      )) || M();
+      if (e.method === "GET" && e.url === "/ping") {
+        t.writeHead(
           200,
           {
             "Content-Type": "application/json",
             "Cache-Control": "no-store"
           }
-        );
-        res.end(
+        ), t.end(
           JSON.stringify({
-            ok: true,
+            ok: !0,
             service: "LocalSend",
-            alias: DEVICE_ALIAS,
-            ip: serverIP,
-            port: WS_PORT
+            alias: z,
+            ip: i,
+            port: D
           })
         );
         return;
       }
-      if (req.method === "POST" && req.url === "/register") {
-        let body = "";
-        req.on(
+      if (e.method === "POST" && e.url === "/register") {
+        let f = "";
+        e.on(
           "data",
-          (chunk) => {
-            body += chunk.toString();
+          (d) => {
+            f += d.toString();
           }
-        );
-        req.on(
+        ), e.on(
           "end",
           () => {
             try {
-              const data = JSON.parse(
-                body
-              );
-              const device = {
-                alias: data.alias || `Android-${clientIP}`,
-                ip: clientIP,
-                port: data.port ?? WS_PORT,
+              const d = JSON.parse(
+                f
+              ), c = {
+                alias: d.alias || `Android-${o}`,
+                ip: o,
+                port: d.port ?? D,
                 deviceType: "mobile",
                 lastSeen: Date.now()
-              };
-              const existed = mobileDevices.has(
-                clientIP
+              }, s = N.has(
+                o
               );
-              mobileDevices.set(
-                clientIP,
-                device
-              );
-              if (!existed) {
-                console.log(
-                  "📱 Nuevo dispositivo:",
-                  device.alias,
-                  clientIP
-                );
-              }
-              win == null ? void 0 : win.webContents.send(
+              N.set(
+                o,
+                c
+              ), s || console.log(
+                "📱 Nuevo dispositivo:",
+                c.alias,
+                o
+              ), n == null || n.webContents.send(
                 "device-found",
-                device
-              );
-              res.writeHead(
+                c
+              ), t.writeHead(
                 200,
                 {
                   "Content-Type": "application/json"
                 }
-              );
-              res.end(
+              ), t.end(
                 JSON.stringify({
-                  ok: true
+                  ok: !0
                 })
               );
             } catch {
-              res.writeHead(
+              t.writeHead(
                 400,
                 {
                   "Content-Type": "application/json"
                 }
-              );
-              res.end(
+              ), t.end(
                 JSON.stringify({
-                  ok: false
+                  ok: !1
                 })
               );
             }
@@ -620,775 +609,835 @@ function startHttpServer() {
         );
         return;
       }
-      if (req.method === "GET" && req.url === "/devices") {
-        cleanupStale();
-        const selfEntry = {
-          alias: DEVICE_ALIAS,
-          ip: serverIP,
-          port: WS_PORT,
-          deviceType: "desktop"
-        };
-        const list = [
-          selfEntry,
-          ...mobileDevices.values()
+      if (e.method === "GET" && e.url === "/devices") {
+        se();
+        const d = [
+          {
+            alias: z,
+            ip: i,
+            port: D,
+            deviceType: "desktop"
+          },
+          ...N.values()
         ].filter(
-          (device) => device.ip !== clientIP
+          (c) => c.ip !== o
         ).filter(
-          (device, index, all) => all.findIndex(
-            (other) => other.alias === device.alias && other.deviceType === device.deviceType
-          ) === index
+          (c, s, m) => m.findIndex(
+            (r) => r.alias === c.alias && r.deviceType === c.deviceType
+          ) === s
         );
-        res.writeHead(
+        t.writeHead(
           200,
           {
             "Content-Type": "application/json",
             "Cache-Control": "no-store"
           }
-        );
-        res.end(
+        ), t.end(
           JSON.stringify(
-            list
+            d
           )
         );
         return;
       }
-      if (req.method === "GET" && req.url === "/incoming") {
-        const list = (pendingByIP.get(
-          clientIP
+      if (e.method === "GET" && e.url === "/incoming") {
+        const f = (k.get(
+          o
         ) ?? []).map(
-          (file) => ({
-            id: file.id,
-            fileName: file.fileName,
-            fileSize: file.fileSize
+          (d) => ({
+            id: d.id,
+            fileName: d.fileName,
+            fileSize: d.fileSize
           })
         );
-        res.writeHead(
+        t.writeHead(
           200,
           {
             "Content-Type": "application/json"
           }
-        );
-        res.end(
+        ), t.end(
           JSON.stringify(
-            list
+            f
           )
         );
         return;
       }
-      if (req.method === "GET" && ((_c = req.url) == null ? void 0 : _c.startsWith(
+      if (e.method === "GET" && ((v = e.url) != null && v.startsWith(
         "/download/"
       ))) {
-        const id = decodeURIComponent(
-          req.url.substring(
-            "/download/".length
+        const f = decodeURIComponent(
+          e.url.substring(
+            10
           )
+        ), d = k.get(
+          o
+        ) ?? [], c = d.findIndex(
+          (y) => y.id === f
         );
-        const list = pendingByIP.get(
-          clientIP
-        ) ?? [];
-        const index = list.findIndex(
-          (file2) => file2.id === id
-        );
-        if (index === -1) {
-          res.writeHead(
+        if (c === -1) {
+          t.writeHead(
             404,
             {
               "Content-Type": "application/json"
             }
-          );
-          res.end(
+          ), t.end(
             JSON.stringify({
               error: "Archivo no encontrado"
             })
           );
           return;
         }
-        const file = list[index];
-        if (!fs.existsSync(
-          file.filePath
+        const s = d[c];
+        if (!h.existsSync(
+          s.filePath
         )) {
-          list.splice(
-            index,
+          d.splice(
+            c,
             1
-          );
-          res.writeHead(
+          ), t.writeHead(
             404
-          );
-          res.end();
+          ), t.end();
           return;
         }
-        const rangeMatch = /^bytes=(\d+)-$/.exec(
+        const m = /^bytes=(\d+)-$/.exec(
           String(
-            req.headers.range ?? ""
+            e.headers.range ?? ""
           )
-        );
-        const start = rangeMatch ? Number(rangeMatch[1]) : 0;
-        if (start >= file.fileSize && file.fileSize > 0) {
-          res.writeHead(
+        ), r = m ? Number(m[1]) : 0;
+        if (r >= s.fileSize && s.fileSize > 0) {
+          t.writeHead(
             416,
             {
-              "Content-Range": `bytes */${file.fileSize}`
+              "Content-Range": `bytes */${s.fileSize}`
             }
-          );
-          res.end();
+          ), t.end();
           return;
         }
-        if (start > 0) {
-          console.log(
-            "⏯️ Reanudando",
-            file.fileName,
-            "desde el byte",
-            start
-          );
-        }
-        res.writeHead(
-          start > 0 ? 206 : 200,
+        r > 0 && console.log(
+          "⏯️ Reanudando",
+          s.fileName,
+          "desde el byte",
+          r
+        ), t.writeHead(
+          r > 0 ? 206 : 200,
           {
+            // Tipo: "bytes cualquiera" (octet-stream)
             "Content-Type": "application/octet-stream",
-            // Solo lo que falta mandar.
-            "Content-Length": file.fileSize - start,
-            ...start > 0 ? {
-              "Content-Range": `bytes ${start}-${file.fileSize - 1}/${file.fileSize}`
+            // Cuántos bytes mandamos: solo lo que falta
+            "Content-Length": s.fileSize - r,
+            // Si reanuda, decimos qué parte mandamos:
+            // "bytes desde-hasta/total"
+            ...r > 0 ? {
+              "Content-Range": `bytes ${r}-${s.fileSize - 1}/${s.fileSize}`
             } : {},
-            // Le avisamos al celular que puede reanudar.
+            // Le avisamos al celular que esta PC sabe
+            // reanudar descargas
             "Accept-Ranges": "bytes",
-            "Content-Disposition": `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+            // Nombre del archivo (codificado para que
+            // viaje bien con acentos y espacios)
+            "Content-Disposition": `attachment; filename="${encodeURIComponent(s.fileName)}"`,
+            // No guardar en caché
             "Cache-Control": "no-store"
           }
         );
-        const readStream = fs.createReadStream(
-          file.filePath,
+        const l = h.createReadStream(
+          s.filePath,
           {
-            start,
+            start: r,
             highWaterMark: 1024 * 1024
           }
-        );
-        const reporter = createProgressReporter(
+        ), w = Q(
           "send",
-          file.fileName,
-          file.fileSize,
-          clientIP,
-          start
+          s.fileName,
+          s.fileSize,
+          o,
+          r
         );
-        let sentBytes = start;
-        let completed = false;
-        let failed = false;
-        const fail = (message) => {
-          if (completed || failed) {
-            return;
-          }
-          failed = true;
-          console.log(
+        let b = r, C = !1, O = !1;
+        const R = (y) => {
+          C || O || (O = !0, console.log(
             "⚠️ Envío interrumpido:",
-            file.fileName,
-            message
-          );
-          reporter.fail(
-            message,
-            true
-          );
-          readStream.destroy();
+            s.fileName,
+            y
+          ), w.fail(
+            y,
+            !0
+          ), l.destroy());
         };
-        res.setTimeout(
-          INACTIVITY_TIMEOUT,
+        t.setTimeout(
+          H,
           () => {
-            fail(
-              `Se perdió la conexión con el celular (sin actividad durante ${INACTIVITY_TIMEOUT / 1e3} s). El celular puede reanudar desde donde quedó.`
-            );
-            res.destroy();
+            R(
+              `Se perdió la conexión con el celular (sin actividad durante ${H / 1e3} s). El celular puede reanudar desde donde quedó.`
+            ), t.destroy();
           }
-        );
-        readStream.on(
+        ), l.on(
           "data",
-          (chunk) => {
-            sentBytes += chunk.length;
-            reporter.update(
-              sentBytes
+          (y) => {
+            b += y.length, w.update(
+              b
             );
           }
-        );
-        readStream.on(
+        ), l.on(
           "error",
-          (error) => {
+          (y) => {
             console.error(
               "Error leyendo archivo:",
-              error
-            );
-            fail(
-              `No se pudo leer el archivo en la PC: ${error.message}`
-            );
-            res.destroy();
+              y
+            ), R(
+              `No se pudo leer el archivo en la PC: ${y.message}`
+            ), t.destroy();
           }
-        );
-        res.on(
+        ), t.on(
           "close",
           () => {
-            if (!completed && !res.writableFinished) {
-              fail(
-                `El celular se desconectó al ${file.fileSize > 0 ? Math.floor(sentBytes / file.fileSize * 100) : 0}%. Puede reanudar desde ese punto.`
-              );
-            }
+            !C && !t.writableFinished && R(
+              `El celular se desconectó al ${s.fileSize > 0 ? Math.floor(b / s.fileSize * 100) : 0}%. Puede reanudar desde ese punto.`
+            );
           }
-        );
-        res.on(
+        ), t.on(
           "finish",
           () => {
-            completed = true;
-            reporter.complete(
-              sentBytes
+            C = !0, w.complete(
+              b
             );
           }
-        );
-        readStream.on(
+        ), l.on(
           "close",
           () => {
-            if (completed) {
-              const current = pendingByIP.get(
-                clientIP
+            if (C) {
+              const y = k.get(
+                o
               );
-              if (current) {
-                const currentIndex = current.findIndex(
-                  (item) => item.id === file.id
+              if (y) {
+                const u = y.findIndex(
+                  ($) => $.id === s.id
                 );
-                if (currentIndex !== -1) {
-                  current.splice(
-                    currentIndex,
-                    1
-                  );
-                }
+                u !== -1 && y.splice(
+                  u,
+                  1
+                );
               }
               try {
-                new Notification({
+                new P({
                   title: "📤 Archivo enviado",
-                  body: `${file.fileName} fue descargado por el celular.`
+                  body: `${s.fileName} fue descargado por el celular.`
                 }).show();
               } catch {
               }
             }
           }
-        );
-        readStream.pipe(
-          res
+        ), l.pipe(
+          t
         );
         return;
       }
-      if (req.method === "POST" && ((_d = req.url) == null ? void 0 : _d.startsWith(
+      if (e.method === "POST" && e.url === "/prepare-upload") {
+        let f = "";
+        e.on(
+          "data",
+          (d) => {
+            f += d.toString();
+          }
+        ), e.on(
+          "end",
+          async () => {
+            var b;
+            let d;
+            try {
+              d = JSON.parse(
+                f
+              );
+            } catch {
+              t.writeHead(
+                400,
+                {
+                  "Content-Type": "application/json"
+                }
+              ), t.end(
+                JSON.stringify({
+                  accepted: !1,
+                  error: "Pedido inválido."
+                })
+              );
+              return;
+            }
+            const c = Z(
+              q(
+                String(
+                  d.fileName || `archivo-${Date.now()}`
+                )
+              ),
+              typeof d.mimeType == "string" ? d.mimeType : void 0
+            ), s = Number(
+              d.size
+            ) || 0, m = String(
+              d.alias || ((b = N.get(o)) == null ? void 0 : b.alias) || o
+            ), r = new AbortController();
+            t.on(
+              "close",
+              () => {
+                t.writableFinished || r.abort();
+              }
+            ), console.log(
+              "❓ Pidiendo aceptación:",
+              c,
+              "de",
+              m
+            );
+            let l;
+            try {
+              l = await we(
+                c,
+                s,
+                m,
+                r.signal
+              );
+            } catch (C) {
+              console.error(
+                "Diálogo de aceptación:",
+                C
+              ), l = "rejected";
+            }
+            if (console.log(
+              "➡️ Respuesta:",
+              l
+            ), l === "cancelled")
+              return;
+            if (l !== "accepted") {
+              const C = l === "timeout" ? `Nadie respondió en la PC durante ${ie / 1e3} s, así que el envío se canceló.` : "El usuario de la PC rechazó el archivo.";
+              n == null || n.webContents.send(
+                "transfer-error",
+                {
+                  direction: "receive",
+                  fileName: c,
+                  peer: o,
+                  total: s,
+                  bytes: 0,
+                  progress: 0,
+                  speed: 0,
+                  eta: null,
+                  message: l === "timeout" ? `No respondiste a tiempo: se canceló "${c}".` : `Rechazaste "${c}". Se le avisó al celular.`,
+                  canRetry: !1,
+                  rejected: !0
+                }
+              ), t.writeHead(
+                403,
+                {
+                  "Content-Type": "application/json"
+                }
+              ), t.end(
+                JSON.stringify({
+                  accepted: !1,
+                  error: C
+                })
+              );
+              return;
+            }
+            const w = de();
+            F.set(
+              w,
+              {
+                ip: o,
+                fileName: c,
+                expiresAt: Date.now() + ye
+              }
+            ), t.writeHead(
+              200,
+              {
+                "Content-Type": "application/json"
+              }
+            ), t.end(
+              JSON.stringify({
+                accepted: !0,
+                token: w
+              })
+            );
+          }
+        );
+        return;
+      }
+      if (e.method === "POST" && ((E = e.url) != null && E.startsWith(
         "/upload"
       ))) {
-        const urlObj = new URL(
-          req.url,
-          `http://${req.headers.host}`
+        const f = new URL(
+          e.url,
+          `http://${e.headers.host}`
+        ), d = f.searchParams.get(
+          "token"
+        ) ?? "", c = F.get(
+          d
         );
-        const rawName = urlObj.searchParams.get(
-          "fileName"
-        ) || `archivo-${Date.now()}`;
-        const fileName = ensureExtension(
-          sanitizeFileName(
-            rawName
+        if (F.delete(
+          d
+        ), !c || c.ip !== o || c.expiresAt < Date.now()) {
+          console.log(
+            "⛔ Subida sin autorización de",
+            o
+          ), t.writeHead(
+            403,
+            {
+              "Content-Type": "application/json",
+              Connection: "close"
+            }
+          ), t.end(
+            JSON.stringify({
+              ok: !1,
+              error: "La PC no autorizó este envío. Volvé a enviarlo para que aparezca el pedido de aceptación."
+            })
+          ), e.resume();
+          return;
+        }
+        const s = c.fileName, m = Z(
+          q(
+            s
           ),
-          req.headers["content-type"]
-        );
-        const finalPath = getUniquePath(
-          path.join(
-            DOWNLOAD_DIR,
-            fileName
+          e.headers["content-type"]
+        ), r = ce(
+          g.join(
+            A,
+            m
           )
-        );
-        const expectedSize = Number(
-          req.headers["content-length"] ?? urlObj.searchParams.get(
+        ), l = Number(
+          e.headers["content-length"] ?? f.searchParams.get(
             "size"
           ) ?? 0
         );
         console.log(
           "📥 Recibiendo:",
-          fileName
-        );
-        console.log(
+          m
+        ), console.log(
           "📦 Tamaño esperado:",
-          expectedSize
+          l
         );
-        const writeStream = fs.createWriteStream(
-          finalPath,
+        const w = h.createWriteStream(
+          r,
           {
+            // "w" = crear el archivo para escribir
             flags: "w",
             highWaterMark: 1024 * 1024
           }
-        );
-        const reporter = createProgressReporter(
+        ), b = Q(
           "receive",
-          fileName,
-          expectedSize,
-          clientIP
+          m,
+          l,
+          o
         );
-        let receivedBytes = 0;
-        let finished = false;
-        let failed = false;
-        const fail = (message) => {
-          if (finished || failed) {
-            return;
-          }
-          failed = true;
-          console.log(
+        let C = 0, O = !1, R = !1;
+        const y = (u) => {
+          O || R || (R = !0, console.log(
             "❌ Recepción interrumpida:",
-            fileName,
-            message
-          );
-          reporter.fail(
-            message,
-            false
-          );
-          req.unpipe(
-            writeStream
-          );
-          writeStream.destroy();
-          fs.unlink(
-            finalPath,
+            m,
+            u
+          ), b.fail(
+            u,
+            !1
+          ), e.unpipe(
+            w
+          ), w.destroy(), h.unlink(
+            r,
             () => {
             }
-          );
+          ));
         };
-        req.setTimeout(
-          INACTIVITY_TIMEOUT,
+        e.setTimeout(
+          H,
           () => {
-            fail(
-              `No llegaron datos durante ${INACTIVITY_TIMEOUT / 1e3} s: se perdió la conexión con el celular. Hay que reiniciar el envío desde el celular.`
-            );
-            req.destroy();
+            y(
+              `No llegaron datos durante ${H / 1e3} s: se perdió la conexión con el celular. Hay que reiniciar el envío desde el celular.`
+            ), e.destroy();
           }
-        );
-        req.on(
+        ), e.on(
           "data",
-          (chunk) => {
-            receivedBytes += chunk.length;
-            reporter.update(
-              receivedBytes
+          (u) => {
+            C += u.length, b.update(
+              C
             );
           }
-        );
-        req.on(
+        ), e.on(
           "close",
           () => {
-            if (!req.complete) {
-              const percent = expectedSize > 0 ? Math.floor(receivedBytes / expectedSize * 100) : 0;
-              fail(
-                `La conexión con el celular se cortó al ${percent}%. Hay que reiniciar el envío desde el celular.`
+            if (!e.complete) {
+              const u = l > 0 ? Math.floor(C / l * 100) : 0;
+              y(
+                `La conexión con el celular se cortó al ${u}%. Hay que reiniciar el envío desde el celular.`
               );
             }
           }
-        );
-        req.on(
+        ), e.on(
           "error",
-          (error) => {
+          (u) => {
             console.error(
               "❌ Error request:",
-              error
+              u
             );
           }
-        );
-        writeStream.on(
+        ), w.on(
           "error",
-          (error) => {
-            if (failed) {
+          (u) => {
+            if (R)
               return;
-            }
             console.error(
               "❌ Error escribiendo:",
-              error
+              u
             );
-            const reason = error.code === "ENOSPC" ? "No hay espacio suficiente en el disco de la PC." : `No se pudo guardar el archivo en la PC (${error.message}).`;
-            fail(
-              reason
-            );
-            req.unpipe(
-              writeStream
-            );
-            req.resume();
+            const $ = u.code === "ENOSPC" ? "No hay espacio suficiente en el disco de la PC." : `No se pudo guardar el archivo en la PC (${u.message}).`;
+            y(
+              $
+            ), e.unpipe(
+              w
+            ), e.resume();
             try {
-              if (!res.headersSent) {
-                res.writeHead(
-                  500,
-                  {
-                    "Content-Type": "application/json"
-                  }
-                );
-                res.end(
-                  JSON.stringify({
-                    ok: false,
-                    error: reason
-                  })
-                );
-              }
+              t.headersSent || (t.writeHead(
+                500,
+                {
+                  "Content-Type": "application/json"
+                }
+              ), t.end(
+                JSON.stringify({
+                  ok: !1,
+                  error: $
+                })
+              ));
             } catch {
             }
           }
-        );
-        writeStream.on(
+        ), w.on(
           "finish",
           () => {
-            if (finished || failed) {
+            if (O || R)
               return;
-            }
-            finished = true;
-            const actualSize = fs.statSync(
-              finalPath
+            O = !0;
+            const u = h.statSync(
+              r
             ).size;
-            if (expectedSize > 0 && actualSize !== expectedSize) {
+            if (l > 0 && u !== l) {
               console.error(
                 "❌ Tamaño incorrecto:",
-                actualSize,
-                expectedSize
+                u,
+                l
               );
               try {
-                fs.unlinkSync(
-                  finalPath
+                h.unlinkSync(
+                  r
                 );
               } catch {
               }
-              reporter.fail(
-                `El archivo llegó incompleto (${actualSize} de ${expectedSize} bytes). Se descartó; hay que reiniciar el envío.`,
-                false
-              );
-              res.writeHead(
+              b.fail(
+                `El archivo llegó incompleto (${u} de ${l} bytes). Se descartó; hay que reiniciar el envío.`,
+                !1
+              ), t.writeHead(
                 400,
                 {
                   "Content-Type": "application/json"
                 }
-              );
-              res.end(
+              ), t.end(
                 JSON.stringify({
-                  ok: false,
+                  ok: !1,
                   error: "El tamaño del archivo recibido no coincide.",
-                  received: actualSize,
-                  expected: expectedSize
+                  received: u,
+                  expected: l
                 })
               );
               return;
             }
-            const savedPath = fixMissingExtension(
-              finalPath
-            );
-            const savedName = path.basename(
-              savedPath
+            const $ = le(
+              r
+            ), G = g.basename(
+              $
             );
             console.log(
               "✅ Archivo recibido:",
-              savedPath
-            );
-            console.log(
+              $
+            ), console.log(
               "📦 Bytes:",
-              actualSize
-            );
-            reporter.complete(
-              actualSize
+              u
+            ), b.complete(
+              u
             );
             try {
-              new Notification({
+              new P({
                 title: "📦 Archivo recibido",
-                body: `${savedName} guardado en ${DOWNLOAD_DIR}`
+                body: `${G} guardado en ${A}`
               }).show();
             } catch {
             }
-            res.writeHead(
+            t.writeHead(
               200,
               {
                 "Content-Type": "application/json"
               }
-            );
-            res.end(
+            ), t.end(
               JSON.stringify({
-                ok: true,
-                fileName: savedName,
-                size: actualSize,
-                path: savedPath
+                ok: !0,
+                fileName: G,
+                size: u,
+                path: $
               })
             );
           }
-        );
-        req.pipe(
-          writeStream
+        ), e.pipe(
+          w
         );
         return;
       }
-      if (req.method === "POST" && ((_e = req.url) == null ? void 0 : _e.startsWith(
+      if (e.method === "POST" && ((x = e.url) != null && x.startsWith(
         "/discard/"
       ))) {
-        const id = req.url.substring(
-          "/discard/".length
+        const f = new URL(
+          e.url,
+          `http://${e.headers.host}`
+        ), d = decodeURIComponent(
+          f.pathname.substring(
+            9
+          )
+        ), c = f.searchParams.get(
+          "reason"
+        ) === "rejected", s = k.get(
+          o
+        ) ?? [], m = s.findIndex(
+          (r) => r.id === d
         );
-        const list = pendingByIP.get(
-          clientIP
-        ) ?? [];
-        const index = list.findIndex(
-          (file) => file.id === id
-        );
-        if (index !== -1) {
-          const [file] = list.splice(
-            index,
+        if (m !== -1) {
+          const [r] = s.splice(
+            m,
             1
           );
-          win == null ? void 0 : win.webContents.send(
+          if (n == null || n.webContents.send(
             "transfer-error",
             {
               direction: "send",
-              fileName: file.fileName,
-              peer: clientIP,
-              total: file.fileSize,
+              fileName: r.fileName,
+              peer: o,
+              total: r.fileSize,
               bytes: 0,
               progress: 0,
               speed: 0,
               eta: null,
-              message: "El celular descartó el archivo después del error. Si querés, volvé a enviarlo.",
-              canRetry: false
+              message: c ? "El celular rechazó el archivo." : "El celular descartó el archivo después del error. Si querés, volvé a enviarlo.",
+              canRetry: !1,
+              rejected: c
             }
-          );
+          ), c)
+            try {
+              new P({
+                title: "🚫 Archivo rechazado",
+                body: `El celular rechazó "${r.fileName}".`
+              }).show();
+            } catch {
+            }
         }
-        res.writeHead(
+        t.writeHead(
           200,
           {
             "Content-Type": "application/json"
           }
-        );
-        res.end(
+        ), t.end(
           JSON.stringify({
-            ok: true
+            ok: !0
           })
         );
         return;
       }
-      res.writeHead(
+      t.writeHead(
         200,
         {
           "Content-Type": "text/plain"
         }
-      );
-      res.end(
+      ), t.end(
         "LocalSend TCP Node Active"
       );
     }
-  );
-  httpServer.on(
+  ), T.on(
     "error",
-    (error) => {
+    (e) => {
       console.error(
         "HTTP server error:",
-        error
+        e
       );
     }
-  );
-  httpServer.requestTimeout = 0;
-  httpServer.timeout = 0;
-  httpServer.headersTimeout = 6e4;
-  httpServer.keepAliveTimeout = 5e3;
-  httpServer.listen(
-    WS_PORT,
+  ), T.requestTimeout = 0, T.timeout = 0, T.headersTimeout = 6e4, T.keepAliveTimeout = 5e3, T.listen(
+    D,
     "0.0.0.0",
     () => {
       console.log(
-        `🌐 HTTP activo en 0.0.0.0:${WS_PORT}`
-      );
-      console.log(
-        `📁 Descargas: ${DOWNLOAD_DIR}`
-      );
-      serverStatus.tcp = true;
-      win == null ? void 0 : win.webContents.send(
+        `🌐 HTTP activo en 0.0.0.0:${D}`
+      ), console.log(
+        `📁 Descargas: ${A}`
+      ), _.tcp = !0, n == null || n.webContents.send(
         "server-status",
-        serverStatus
+        _
       );
+    }
+  ));
+}
+function Ee() {
+  L.listenerCount(
+    "get-device-info"
+  ) === 0 && L.handle(
+    "get-device-info",
+    () => ({
+      alias: z,
+      ip: M(),
+      downloadDir: A
+    })
+  ), L.listenerCount(
+    "send-file"
+  ) === 0 && L.handle(
+    "send-file",
+    async (e, {
+      filePath: t,
+      targetIP: o
+    }) => {
+      try {
+        if (!t || !o)
+          return {
+            ok: !1,
+            error: "Faltan datos"
+          };
+        if (!h.existsSync(
+          t
+        ))
+          return {
+            ok: !1,
+            error: "El archivo no existe"
+          };
+        const i = h.statSync(
+          t
+        );
+        if (!i.isFile())
+          return {
+            ok: !1,
+            error: "La ruta no es un archivo"
+          };
+        const a = g.basename(
+          t
+        ), p = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, v = k.get(
+          o
+        ) ?? [];
+        return v.push({
+          id: p,
+          filePath: t,
+          fileName: a,
+          fileSize: i.size
+        }), k.set(
+          o,
+          v
+        ), console.log(
+          "📤 Archivo puesto en cola:",
+          a,
+          "→",
+          o
+        ), n == null || n.webContents.send(
+          "transfer-queued",
+          {
+            fileName: a,
+            targetIP: o,
+            fileSize: i.size
+          }
+        ), {
+          ok: !0
+        };
+      } catch (i) {
+        return console.error(
+          "send-file:",
+          i
+        ), {
+          ok: !1,
+          error: "Error interno"
+        };
+      }
     }
   );
 }
-function setupIPC() {
-  if (ipcMain.listenerCount(
-    "get-device-info"
-  ) === 0) {
-    ipcMain.handle(
-      "get-device-info",
-      () => ({
-        alias: DEVICE_ALIAS,
-        ip: getLocalIP(),
-        downloadDir: DOWNLOAD_DIR
-      })
-    );
-  }
-  if (ipcMain.listenerCount(
-    "send-file"
-  ) === 0) {
-    ipcMain.handle(
-      "send-file",
-      async (_event, {
-        filePath,
-        targetIP
-      }) => {
-        try {
-          if (!filePath || !targetIP) {
-            return {
-              ok: false,
-              error: "Faltan datos"
-            };
-          }
-          if (!fs.existsSync(
-            filePath
-          )) {
-            return {
-              ok: false,
-              error: "El archivo no existe"
-            };
-          }
-          const stats = fs.statSync(
-            filePath
-          );
-          if (!stats.isFile()) {
-            return {
-              ok: false,
-              error: "La ruta no es un archivo"
-            };
-          }
-          const fileName = path.basename(
-            filePath
-          );
-          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-          const list = pendingByIP.get(
-            targetIP
-          ) ?? [];
-          list.push({
-            id,
-            filePath,
-            fileName,
-            fileSize: stats.size
-          });
-          pendingByIP.set(
-            targetIP,
-            list
-          );
-          console.log(
-            "📤 Archivo puesto en cola:",
-            fileName,
-            "→",
-            targetIP
-          );
-          win == null ? void 0 : win.webContents.send(
-            "transfer-queued",
-            {
-              fileName,
-              targetIP,
-              fileSize: stats.size
-            }
-          );
-          return {
-            ok: true
-          };
-        } catch (error) {
-          console.error(
-            "send-file:",
-            error
-          );
-          return {
-            ok: false,
-            error: "Error interno"
-          };
-        }
-      }
-    );
-  }
-}
-function createWindow() {
-  win = new BrowserWindow({
+function ee() {
+  n = new te({
+    // Ancho inicial (en píxeles)
     width: 960,
+    // Alto inicial
     height: 820,
+    // Ancho mínimo
     minWidth: 520,
+    // Alto mínimo
     minHeight: 600,
+    // Título
     title: "LocalSend",
-    // Oculta el menú "File / Edit / View" (en inglés).
-    autoHideMenuBar: true,
+    // Oculta el menú "File / Edit / View" (en inglés)
+    autoHideMenuBar: !0,
+    // SEGURIDAD: si alguien lograra meter código
+    // malicioso en la pantalla, no podría tocar tus
+    // archivos.
     webPreferences: {
-      preload: path.join(
-        __dirname$1,
+      // Archivo "puente" que le da a React solo las
+      // funciones que necesita
+      preload: g.join(
+        oe,
         "preload.mjs"
       ),
-      contextIsolation: true,
-      nodeIntegration: false
+      // React y Electron viven separados
+      contextIsolation: !0,
+      // React NO puede usar Node (ni el disco ni la red)
+      nodeIntegration: !1
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(
-      VITE_DEV_SERVER_URL
-    );
-  } else {
-    win.loadFile(
-      path.join(
-        RENDERER_DIST,
-        "index.html"
-      )
-    );
-  }
-  win.webContents.on(
+  }), U ? n.loadURL(
+    U
+  ) : n.loadFile(
+    g.join(
+      ne,
+      "index.html"
+    )
+  ), n.webContents.on(
     "did-finish-load",
     () => {
-      win == null ? void 0 : win.webContents.send(
+      n == null || n.webContents.send(
         "server-status",
         {
-          ...serverStatus,
-          ip: getLocalIP(),
-          port: WS_PORT,
-          alias: DEVICE_ALIAS
+          ..._,
+          ip: M(),
+          port: D,
+          alias: z
         }
       );
     }
   );
 }
-app.whenReady().then(
+j.whenReady().then(
   () => {
-    setupIPC();
-    fixOldDownloads();
-    createWindow();
-    startUDPServer();
-    startHttpServer();
-    cleanupTimer = setInterval(
-      cleanupStale,
+    Ee(), Ne(), ee(), be(), Ae(), V = setInterval(
+      se,
       1e3
-    );
-    app.on(
+    ), j.on(
       "activate",
       () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-          createWindow();
-        }
+        te.getAllWindows().length === 0 && ee();
       }
     );
   }
 );
-app.on(
+j.on(
   "window-all-closed",
   () => {
-    if (process.platform !== "darwin") {
-      app.quit();
-    }
+    process.platform !== "darwin" && j.quit();
   }
 );
-app.on(
+j.on(
   "before-quit",
   () => {
-    if (beaconTimer) {
-      clearInterval(
-        beaconTimer
-      );
-    }
-    if (cleanupTimer) {
-      clearInterval(
-        cleanupTimer
-      );
-    }
+    B && clearInterval(
+      B
+    ), V && clearInterval(
+      V
+    );
     try {
-      udpServer == null ? void 0 : udpServer.close();
+      S == null || S.close();
     } catch {
     }
     try {
-      httpServer == null ? void 0 : httpServer.close();
+      T == null || T.close();
     } catch {
     }
   }
 );
 export {
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  ne as RENDERER_DIST,
+  U as VITE_DEV_SERVER_URL
 };

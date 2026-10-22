@@ -1,0 +1,142 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "02 · A1: UDP y descubrimiento",
+  "description": "Pregunta A1: socket UDP, IP de broadcast, puerto y TTL",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 827,
+          "character": 1
+        },
+        "end": {
+          "line": 845,
+          "character": 200
+        }
+      },
+      "title": "Crear el socket UDP",
+      "description": "## Qué hace cada línea\n- **L827** `function startUDPServer()` → la función que arma todo el descubrimiento.\n- **L829–835** si `udpServer` ya existe, sale (`return`). Evita crear dos sockets.\n- **L837–838** `dgram.createSocket({...})` → **crea el socket UDP**.\n- **L839–840** `type: 'udp4'` → UDP sobre **IPv4** (direcciones tipo 192.168.0.15).\n- **L843–844** `reuseAddr: true` → permite usar el puerto aunque Windows no lo haya liberado (por ejemplo, si cerrás y abrís rápido la app).\n\n### 📖 Palabras técnicas\n- **Socket**: el \"enchufe\" de red de un programa. Es el punto por donde manda y recibe datos.\n- **IPv4**: direcciones de 4 números (192.168.0.15). **IPv6** son las largas con `:`.\n- **dgram**: \"datagrama\", el nombre técnico de un paquete UDP.\n\n### 🎤 Qué decirle al profe\n> \"Acá creamos el socket UDP con `dgram.createSocket`, tipo `udp4`, y con `reuseAddr` para poder reabrir la app sin que el puerto quede ocupado.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 861,
+          "character": 1
+        },
+        "end": {
+          "line": 953,
+          "character": 200
+        }
+      },
+      "title": "Cuando llega un mensaje UDP",
+      "description": "## Qué hace cada línea\n- **L861–866** `udpServer.on('message', (msg, rinfo) => {...})` → cada vez que llega un paquete se ejecuta esta función.\n  - `msg` → el contenido (bytes).\n  - `rinfo` → quién lo mandó: `rinfo.address` (IP) y `rinfo.port`.\n- **L870–873** `JSON.parse(msg.toString())` → bytes → texto → objeto JavaScript.\n- **L875–885** si el mensaje viene **de nuestra propia IP**, lo ignoramos (es nuestro propio beacon que rebota).\n- **L887–891** solo nos interesan mensajes con `deviceType === 'mobile'` y con nombre.\n- **L893–913** armamos el objeto `device`: nombre, IP, puerto y `lastSeen: Date.now()` (**cuándo lo vimos por última vez**).\n- **L915–918** `isNew` → ¿es la primera vez que lo vemos?\n- **L920–923** `mobileDevices.set(ip, device)` → lo guardamos (o actualizamos) en la lista.\n- **L925–928** `win?.webContents.send('device-found', device)` → le avisamos a React para que lo dibuje en el radar.\n- **L933–941** si es nuevo, le mandamos nuestro beacon **directo a su IP (unicast)** para que nos encuentre al instante.\n- **L945–950** `catch`: si el paquete no es JSON válido (basura de otro programa), lo ignoramos.\n\n### 📖 Palabras técnicas\n- **Evento / `.on(...)`**: \"cuando pase X, ejecutá esta función\". Node trabaja mucho así.\n- **Callback**: la función que pasás para que se ejecute después.\n- **Buffer**: bloque de bytes crudos en Node.\n- **JSON**: formato de texto para datos (`{\"alias\":\"Pixel\"}`).\n- **Map**: diccionario clave → valor. Acá la clave es la IP.\n- **Unicast**: mensaje a **una** IP. **Broadcast**: a **todas**.\n- **`?.` (optional chaining)**: si `win` es `null` no explota, simplemente no hace nada.\n- **try/catch**: si algo falla adentro del `try`, se ejecuta el `catch` en vez de romper la app.\n\n### 🎤 Qué decirle al profe\n> \"Cuando llega un beacon de un celular lo guardamos en un Map con la hora en que lo vimos, y le avisamos a React por IPC. Si es nuevo, le respondemos por unicast para que nos vea sin esperar.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 956,
+          "character": 1
+        },
+        "end": {
+          "line": 981,
+          "character": 200
+        }
+      },
+      "title": "bind y setBroadcast",
+      "description": "## Qué hace cada línea\n- **L956–957** `udpServer.bind(UDP_PORT, ...)` → **ata el socket al puerto 53317**: desde ahora recibimos lo que llegue a ese puerto.\n- **L960–966** `setBroadcast(true)` → **habilita mandar a direcciones de broadcast**. Sin esto, el sistema operativo lo bloquea.\n- **L968–970** mensaje en consola.\n- **L972–978** marcamos UDP como activo y se lo avisamos a React (el LED verde de \"Listo para recibir\").\n\n### 📖 Palabras técnicas\n- **bind**: \"atar\" un socket a un puerto local.\n- **Broadcast**: mandar un mensaje a **todos** los dispositivos de la red local a la vez.\n\n### 🎤 Qué decirle al profe\n> \"Hacemos `bind` al 53317 y activamos `setBroadcast(true)`, que es obligatorio para poder mandar a 255.255.255.255.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 984,
+          "character": 1
+        },
+        "end": {
+          "line": 1001,
+          "character": 200
+        }
+      },
+      "title": "Los beacons cada 1 segundo",
+      "description": "## Qué hace cada línea\n- **L984–985** `setInterval(...)` → repite algo para siempre.\n- **L988–997** para cada dirección de broadcast (`getBroadcastAddresses()`) llamamos a `sendBeacon(address)`.\n- **L1000** cada `BEACON_INTERVAL` = **1000 ms**.\n\n### 📖 Palabras técnicas\n- **Beacon** (\"baliza\"): mensaje corto y repetido que dice \"**estoy acá y estoy activo**\".\n- **for...of**: recorre cada elemento de una lista.\n\n### 🎤 Qué decirle al profe\n> \"Cada 1 segundo mandamos un beacon. Por eso la PC aparece en menos de 5 segundos, como pide la prueba.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1010,
+          "character": 1
+        },
+        "end": {
+          "line": 1058,
+          "character": 200
+        }
+      },
+      "title": "sendBeacon: qué mandamos",
+      "description": "## Qué hace cada línea\n- **L1014–1020** si no hay socket, no hace nada.\n- **L1022–1044** armamos el mensaje:\n  - `JSON.stringify({...})` → objeto → texto JSON.\n  - `Buffer.from(...)` → texto → bytes (UDP manda bytes).\n  - Contenido: `service`, `alias` (nombre), `ip`, `port` (53318, para que sepan dónde está el HTTP) y `deviceType: 'desktop'`.\n- **L1048–1054** `udpServer.send(beacon, 0, beacon.length, UDP_PORT, address)`:\n  - `beacon` → los bytes.\n  - `0, beacon.length` → desde el byte 0, todos los bytes.\n  - `UDP_PORT, address` → a qué puerto y a qué IP.\n- **L1056** `catch {}` → si falla un envío (por ejemplo, una placa desconectada), seguimos.\n\n### 📖 Palabras técnicas\n- **Serializar**: convertir un objeto en texto o bytes para mandarlo por la red (`JSON.stringify`). **Deserializar** es lo contrario (`JSON.parse`).\n\n### 🎤 Qué decirle al profe\n> \"El beacon es un JSON pequeño con nuestro nombre, IP y el puerto HTTP. Así el celular ya sabe dónde conectarse para mandar archivos.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 525,
+          "character": 1
+        },
+        "end": {
+          "line": 558,
+          "character": 200
+        }
+      },
+      "title": "¿A qué IP de broadcast? (la respuesta clave de A1)",
+      "description": "## Qué hace cada línea\n- **L527–530** arrancamos con `255.255.255.255` en un `Set` (lista sin repetidos).\n- **L532–535** recorremos cada placa de red real de la PC.\n- **L537–540** IP `\"192.168.0.15\"` → `[192, 168, 0, 15]`.\n- **L542–545** máscara `\"255.255.255.0\"` → `[255, 255, 255, 0]`.\n- **L547–552** para cada número: `ip | (~mascara & 255)`:\n  - `~` invierte los bits de la máscara: 255 → 0, 0 → 255.\n  - `|` (OR) los combina con la IP.\n  - Resultado: `192.168.0.255` = **broadcast dirigido** de esa red.\n- **L556** devuelve todas las direcciones.\n\n### Ejemplo\n| | 192 | 168 | 0 | 15 |\n|---|---|---|---|---|\n| Máscara | 255 | 255 | 255 | 0 |\n| ~Máscara | 0 | 0 | 0 | 255 |\n| IP OR ~máscara | **192** | **168** | **0** | **255** |\n\n### 📖 Palabras técnicas\n- **Broadcast limitado (255.255.255.255)**: le llega a todos los de **la red local**. Los routers no lo dejan salir.\n- **Broadcast dirigido (192.168.0.255)**: le llega a todos los de **esa red en particular**.\n- **Máscara de subred**: dice qué parte de la IP es \"la red\" y qué parte es \"el dispositivo\".\n- **Operadores de bits** (`|`, `~`, `&`): trabajan con los 0 y 1 de cada número.\n\n### 🎤 Qué decirle al profe\n> \"Mandamos a 255.255.255.255 **y además** al broadcast de cada placa (IP OR máscara invertida). Lo hacemos porque en Windows, con VirtualBox o Hyper-V, el 255.255.255.255 a veces sale por la placa virtual y el celular nunca lo recibe. El puerto 53317 es el del LocalSend original y está en el rango dinámico, de 49152 a 65535, así que no choca con otros servicios.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 770,
+          "character": 1
+        },
+        "end": {
+          "line": 820,
+          "character": 200
+        }
+      },
+      "title": "TTL: sacar celulares que se desconectaron",
+      "description": "## Qué hace cada línea\n- **L772** `now` → la hora actual en ms.\n- **L775–780** recorremos todos los celulares de la lista.\n- **L782–793** si ese celular **está en medio de una transferencia**, lo damos por vivo (con el Wi-Fi saturado, los latidos se pueden atrasar).\n- **L795–799** si `now - lastSeen > STALE_MS` (pasaron **más de 5 s** sin señales)...\n- **L807–809** ...lo borramos del Map...\n- **L811–814** ...y le avisamos a React (`device-removed`) para que desaparezca del radar.\n\nEsta función corre **cada 1 segundo** (la vimos en el arranque).\n\n### 📖 Palabras técnicas\n- **TTL**: si no se renueva en 5 s, \"vence\".\n- **Heartbeat / latido**: mensaje periódico que renueva el TTL. El celular manda `/register` cada 1 s y también beacons UDP.\n- **continue**: salta al siguiente elemento del `for`.\n\n### 🎤 Qué decirle al profe\n> \"Si apagan el Wi-Fi del celular, deja de mandar latidos, y a los 5 s esta función lo saca de la lista. Cuando vuelve el Wi-Fi, el primer beacon lo agrega de nuevo. Eso es TTL con beacons.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 7\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 907,
+          "character": 1
+        },
+        "end": {
+          "line": 1040,
+          "character": 200
+        }
+      },
+      "title": "El mismo UDP del lado del celular",
+      "description": "## Qué hace cada línea\n- **L907** `useEffect(() => {...}, [isConnected])` → se ejecuta cuando cambia el estado del Wi-Fi.\n- **L909–911** si no hay Wi-Fi, no hace nada.\n- **L923–927** `dgram.createSocket({ type: 'udp4', reusePort: true })` → igual que en la PC, con la librería `react-native-udp`.\n- **L929–961** cuando llega un beacon con `deviceType === 'desktop'`, llama a `connectToDesktop(ip)`: **encontró la PC**.\n- **L973–985** `bind(UDP_PORT)` y `setBroadcast(true)`.\n- **L986–995** si UDP no está disponible, queda el **respaldo por HTTP**.\n- **L997–1032** cada 1 s manda su beacon (`deviceType: 'mobile'`) a `255.255.255.255`.\n- **L1035–1040** **cleanup**: cuando el efecto se desarma (por ejemplo, se cae el Wi-Fi), para el intervalo y cierra el socket.\n\n### 📖 Palabras técnicas\n- **Hook**: función especial de React (`useState`, `useEffect`, `useRef`).\n- **useEffect**: ejecuta código \"de efecto\" (red, timers) cuando cambian ciertas variables.\n- **Cleanup**: la función que devuelve el `useEffect`. Limpia lo que se creó para que no queden sockets abiertos.\n- **react-native-udp**: librería **nativa** que da UDP en Android. Por eso no funciona en Expo Go: necesita el APK.\n\n### 🎤 Qué decirle al profe\n> \"El celular hace lo mismo: escucha beacons de la PC y manda los suyos. Cuando vuelve el Wi-Fi, `useEffect` se vuelve a ejecutar y reabre el socket.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 8\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 1059,
+          "character": 1
+        },
+        "end": {
+          "line": 1066,
+          "character": 200
+        }
+      },
+      "title": "Plan B: si la red bloquea UDP",
+      "description": "## Qué hace\n`discoverDesktop` prueba `GET /ping` por HTTP a **todas las IPs de la subred** (de 1 a 254), de a **64 en paralelo**, con 500 ms de timeout. Recorre la red en unos 2 segundos.\n\nAntes prueba la **última PC conocida**, que es lo más rápido.\n\n### 📖 Palabras técnicas\n- **Subred**: todas las IPs que comparten el inicio (192.168.0.x).\n- **Promise.all**: espera a que terminen muchas promesas **en paralelo**.\n\n### 🎤 Qué decirle al profe\n> \"Algunas redes de facultad bloquean el broadcast. Por eso, si UDP no funciona, el celular escanea la subred por HTTP. Y si eso tampoco funciona, está la opción de conectar escribiendo la IP a mano.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 02 9\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

@@ -9,6 +9,22 @@ import {
 // ============================================================
 // API SEGURA PARA REACT
 // ============================================================
+//
+// PRELOAD = el "puente" entre la pantalla (React) y
+// main.ts.
+// React vive aislado (contextIsolation) y no puede usar
+// Node: no puede leer el disco ni abrir conexiones. Este
+// archivo corre ANTES que la pantalla y le deja en
+// window.electronAPI SOLO las funciones de esta lista. Es
+// como una ventanilla: React puede pedir cosas, pero no
+// entrar a la cocina.
+// Dos tipos de funciones:
+// - ipcRenderer.invoke(...): React PIDE algo y espera la
+//   respuesta (como una pregunta).
+// - ipcRenderer.on(...): React se queda ESCUCHANDO avisos
+//   que manda main (dispositivo encontrado, progreso,
+//   etc.). "callback" es la función de React que se ejecuta
+//   con cada aviso.
 
 contextBridge.exposeInMainWorld(
   'electronAPI',
@@ -18,6 +34,8 @@ contextBridge.exposeInMainWorld(
     // INFORMACIÓN DE LA PC
     // ========================================================
 
+    // Pide el nombre, la IP y la carpeta de descargas de la
+    // PC.
     getDeviceInfo:
       () =>
         ipcRenderer.invoke(
@@ -46,6 +64,9 @@ contextBridge.exposeInMainWorld(
     // PC → MOBILE
     // ========================================================
 
+    // Pide mandar el archivo (por su ruta en el disco) al
+    // celular con esa IP. main lo pone en la cola de ese
+    // celular.
     sendFile:
       (
         filePath: string,
@@ -66,6 +87,8 @@ contextBridge.exposeInMainWorld(
     // DISPOSITIVO ENCONTRADO
     // ========================================================
 
+    // Avisa cuando aparece un celular nuevo (o uno que
+    // volvió).
     onDeviceFound:
       (
         callback: (
@@ -94,6 +117,8 @@ contextBridge.exposeInMainWorld(
     // DISPOSITIVO ELIMINADO
     // ========================================================
 
+    // Avisa cuando un celular pasó 5 s sin señales y se
+    // sacó de la lista.
     onDeviceRemoved:
       (
         callback: (
@@ -122,6 +147,8 @@ contextBridge.exposeInMainWorld(
     // ESTADO SERVIDOR
     // ========================================================
 
+    // Avisa si los servidores UDP y HTTP ya arrancaron
+    // (para el LED verde).
     onServerStatus:
       (
         callback: (
@@ -136,8 +163,7 @@ contextBridge.exposeInMainWorld(
             status
           ) => {
 
-            // IMPORTANTE:
-            // era "statuse" en tu código anterior.
+            // Le pasamos a React el estado tal cual llega.
             callback(
               status
             )
@@ -152,6 +178,8 @@ contextBridge.exposeInMainWorld(
     // PROGRESO PC → MOBILE
     // ========================================================
 
+    // Progreso de un envío (canal viejo, lo dejamos por
+    // compatibilidad).
     onSendProgress:
       (
         callback: (
@@ -180,6 +208,8 @@ contextBridge.exposeInMainWorld(
     // PROGRESO MOBILE → PC
     // ========================================================
 
+    // Progreso en los dos sentidos: %, bytes, velocidad
+    // (MB/s) y tiempo restante.
     onTransferProgress:
       (
         callback: (
@@ -208,6 +238,7 @@ contextBridge.exposeInMainWorld(
     // TRANSFERENCIA TERMINADA
     // ========================================================
 
+    // La transferencia terminó bien.
     onTransferComplete:
       (
         callback: (
@@ -236,6 +267,8 @@ contextBridge.exposeInMainWorld(
     // TRANSFERENCIA INTERRUMPIDA
     // ========================================================
 
+    // La transferencia se cortó o fue rechazada: trae el
+    // motivo y en qué % quedó.
     onTransferError:
       (
         callback: (
@@ -264,6 +297,8 @@ contextBridge.exposeInMainWorld(
     // ARCHIVO PUESTO EN COLA
     // ========================================================
 
+    // El archivo quedó en la cola, esperando que el celular
+    // lo pida.
     onTransferQueued:
       (
         callback: (
@@ -292,6 +327,10 @@ contextBridge.exposeInMainWorld(
     // LIMPIAR LISTENERS
     // ========================================================
 
+    // Deja de escuchar un canal (React lo usa al cerrarse
+    // la pantalla para no escuchar dos veces lo mismo).
+    // Solo se permiten los canales de esta lista, así React
+    // no puede apagar canales internos de Electron.
     removeAllListeners:
       (
         channel: string

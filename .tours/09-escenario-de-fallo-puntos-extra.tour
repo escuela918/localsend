@@ -1,0 +1,86 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "09 · Escenario de fallo (puntos extra)",
+  "description": "\"Desconecto el cable mientras se envía\": qué pasa y qué mejoraríamos",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1994,
+          "character": 1
+        },
+        "end": {
+          "line": 2005,
+          "character": 200
+        }
+      },
+      "title": "Timeout de inactividad (PC envía)",
+      "description": "## Qué hace cada línea\n- **L1994–1995** `res.setTimeout(INACTIVITY_TIMEOUT, ...)` → si en **20 s** no se movió ni un byte...\n- **L1998–2000** `fail(...)` → avisa a React en qué % quedó y por qué.\n- **L2002** `res.destroy()` → cierra la conexión de golpe.\n\n### ¿Por qué hace falta?\nSi se corta el Wi-Fi, **TCP no siempre se entera**: la conexión queda \"colgada\" esperando para siempre. El timeout la detecta.\n\n### 📖 Palabras técnicas\n- **Conexión colgada (half-open)**: un lado cree que la conexión sigue viva pero el otro ya no está.\n- **destroy()**: cierra el socket inmediatamente y libera recursos.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2596,
+          "character": 1
+        },
+        "end": {
+          "line": 2607,
+          "character": 200
+        }
+      },
+      "title": "Timeout de inactividad (PC recibe)",
+      "description": "## Qué hace\n`req.setTimeout(20000, ...)` → si el celular deja de mandar bytes 20 s: `fail(...)` **borra el archivo a medias** (`fs.unlink`), para no dejar basura, y avisa en qué %.\n\n### 🎤 Qué decirle al profe\n> \"Si se corta mientras recibimos, a los 20 s lo detectamos, borramos el archivo incompleto y mostramos en qué % se cortó. La barra no desaparece.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2042,
+          "character": 1
+        },
+        "end": {
+          "line": 2058,
+          "character": 200
+        }
+      },
+      "title": "Corte detectado al instante",
+      "description": "## Qué hace\n`res.on('close', ...)` → si la conexión se cierra **antes** de terminar (`!completed && !res.writableFinished`), avisamos: \"El celular se desconectó al X %. Puede reanudar desde ese punto.\"\n\nY el archivo **sigue en la cola**: el celular puede pedirlo de nuevo con `Range`.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 1704,
+          "character": 1
+        },
+        "end": {
+          "line": 1723,
+          "character": 200
+        }
+      },
+      "title": "Watchdog en el celular",
+      "description": "## Qué hace cada línea\n- `setInterval(..., 2000)` → cada 2 s revisa...\n- `Date.now() - lastProgressAtRef.current > STALL_TIMEOUT` → si pasaron **20 s sin progreso**...\n- `activeTaskRef.current.cancel()` → cancela la tarea nativa con un motivo claro.\n\n### 📖 Palabras técnicas\n- **Watchdog** (\"perro guardián\"): un timer que vigila que algo siga avanzando. Si se traba, actúa.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2380,
+          "character": 1
+        },
+        "end": {
+          "line": 2414,
+          "character": 200
+        }
+      },
+      "title": "Reanudar la descarga",
+      "description": "## Qué hace\nSi quedó un archivo parcial, `DownloadTask.fromSavable({ ..., resumeData: String(resumeFrom) })` + `resumeAsync()` → pide a la PC `Range: bytes=<lo que ya tiene>-` y **agrega** lo que falta al final del archivo.\n\n### 🎤 Qué decirle al profe\n> \"Las descargas de PC a celular se reanudan con HTTP Range: si se cortó al 60 %, sigue desde el 60 %.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "🎤 La respuesta completa al escenario de fallo",
+      "description": "## Si el profe desconecta el cable\n\n> \"**Detección:** TCP no siempre avisa del corte, por eso tenemos un timeout de inactividad de 20 s en la PC y un watchdog en el celular.\n>\n> **PC → celular:** el archivo parcial se guarda y la PC lo deja en la cola. Al tocar 'Reanudar', el celular pide `Range` y la PC manda solo lo que falta, con código 206.\n>\n> **Celular → PC:** borramos el archivo incompleto y mostramos en qué porcentaje se cortó. La barra no desaparece y hay botón de reintentar.\n>\n> **Qué mejoraríamos:**\n> 1. Reanudar también las **subidas** (guardar el parcial en la PC y aceptar un offset).\n> 2. Verificar con un **hash SHA-256**, no solo con el tamaño: el tamaño puede coincidir aunque haya bytes corruptos, el hash no.\n> 3. **Reintento automático** con espera creciente (*exponential backoff*) cuando vuelve la red.\"\n\n### 📖 Palabras técnicas\n- **Hash (SHA-256)**: \"huella digital\" de un archivo. Si cambia un solo bit, el hash cambia completamente.\n- **Exponential backoff**: reintentar esperando cada vez más (1 s, 2 s, 4 s…) para no saturar.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 09 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

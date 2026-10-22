@@ -1,0 +1,146 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "04 · A3: Handshake (Aceptar / Rechazar)",
+  "description": "Pregunta A3: dónde se frena el envío esperando que el receptor acepte",
+  "steps": [
+    {
+      "title": "El handshake en 4 pasos",
+      "description": "## 🤝 Cómo funciona\n\n```\nCELULAR                                  PC\n1. POST /prepare-upload  {nombre, tamaño} ──▶\n                                          2. Diálogo Aceptar/Rechazar\n                                             ⏸  await  (se frena acá)\n3a. ◀── 200 { token }      (aceptó)\n3b. ◀── 403 { error }      (rechazó) → el celular muestra \"rechazado\"\n4. POST /upload?token=...  (los bytes) ──▶  verifica el token\n```\n\n### 📖 Palabras técnicas\n- **Handshake** (\"apretón de manos\"): intercambio previo donde las dos partes **se ponen de acuerdo** antes de mandar los datos.\n- **Token**: un código secreto de un solo uso que demuestra que **ya te autorizaron**.\n- **403 Forbidden**: código HTTP que significa \"no autorizado / rechazado\".\n- **200 OK**: todo bien.\n\n### 🎤 Qué decirle al profe\n> \"Primero mandamos solo los metadatos. La PC muestra el diálogo y se queda esperando con un `await`. Si acepta, devuelve un token, y recién con ese token el celular manda los bytes.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2790,
+          "character": 1
+        },
+        "end": {
+          "line": 2830,
+          "character": 200
+        }
+      },
+      "title": "1) El celular pide permiso",
+      "description": "## Qué hace cada línea\n- **L2790–2791** tamaño real del archivo.\n- **L2793–2794** `baseUrl` = `http://IP-de-la-PC:53318`.\n- **L2810–2830** `await fetchWithTimeout(.../prepare-upload, {...}, ACCEPT_WAIT_TIMEOUT)`:\n  - `method: 'POST'` → mandamos datos.\n  - `'Content-Type': 'application/json'` → avisamos que es JSON.\n  - `body: JSON.stringify({ fileName, size, mimeType, alias })` → **solo metadatos**, ni un byte del archivo.\n  - `ACCEPT_WAIT_TIMEOUT` = 65 s → la PC le da 60 s al usuario. Esperamos un poco más para recibir su respuesta.\n- El `await` hace que **el celular espere** la respuesta sin congelar la pantalla.\n\n### 📖 Palabras técnicas\n- **fetch**: función para hacer pedidos HTTP desde JavaScript.\n- **await**: \"esperá a que esta promesa se resuelva y seguí\". No bloquea la interfaz.\n- **MIME type**: el tipo del archivo (`image/jpeg`, `video/mp4`).\n\n### 🎤 Qué decirle al profe\n> \"El celular manda primero solo el nombre y el tamaño a `/prepare-upload` y queda esperando con `await`.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2154,
+          "character": 1
+        },
+        "end": {
+          "line": 2176,
+          "character": 200
+        }
+      },
+      "title": "2) La PC recibe el pedido de permiso",
+      "description": "## Qué hace cada línea\n- **L2154–2159** ruta `POST /prepare-upload`.\n- **L2161–2172** juntamos el JSON que llega en `body`.\n- **L2174** cuando termina de llegar (`'end'`), seguimos. Esta función es **`async`** para poder usar `await` adentro.\n\nDespués (entre L2176 y L2235) se lee el JSON y se **sanitiza** el nombre (se sacan los caracteres peligrosos).\n\n### 📖 Palabras técnicas\n- **async**: marca una función que puede usar `await`. Siempre devuelve una promesa.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2237,
+          "character": 1
+        },
+        "end": {
+          "line": 2270,
+          "character": 200
+        }
+      },
+      "title": "⏸ 3) ACÁ SE FRENA EL FLUJO",
+      "description": "## ⭐ La respuesta a la pregunta A3\n\n- **L2237–2238** `new AbortController()` → un \"botón de cancelar\" para el diálogo.\n- **L2240–2251** `res.on('close', ...)` → si el celular **corta la conexión** mientras esperamos (`!res.writableFinished` = todavía no respondimos), cancelamos el diálogo.\n- **L2264–2270** 👉 **`answer = await askUserToAccept(...)`** 👈\n  - **El servidor se queda esperando acá** hasta que el usuario toca un botón.\n  - Mientras tanto la app **no se congela**: `await` libera el hilo para otros pedidos, los beacons y la pantalla.\n\n### 📖 Palabras técnicas\n- **AbortController / AbortSignal**: permite **cancelar** algo que está en espera (un `fetch`, un diálogo). `controller.abort()` dispara la cancelación y `controller.signal` es la \"señal\" que escucha la operación.\n- **Event loop**: el mecanismo de Node que permite que, mientras algo espera, se atiendan otras cosas. Por eso `await` no congela nada.\n\n### 🎤 Qué decirle al profe\n> \"**Acá**, en el `await askUserToAccept`, se detiene el flujo. La respuesta HTTP al celular no se manda hasta que el usuario decide. Como es `await` y no un bucle, el resto de la app sigue funcionando.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 287,
+          "character": 1
+        },
+        "end": {
+          "line": 397,
+          "character": 200
+        }
+      },
+      "title": "askUserToAccept: el diálogo por dentro",
+      "description": "## Qué hace cada línea\n- **L287–294** recibe nombre, tamaño, quién lo manda y la señal de cancelación. Devuelve `Promise<AcceptAnswer>`: `'accepted'`, `'rejected'`, `'timeout'` o `'cancelled'`.\n- **L298–316** trae la ventana al frente: `restore()` si estaba minimizada, `show()`, `focus()` y `flashFrame(true)` (titila en la barra de tareas).\n- **L318–327** notificación de Windows \"📥 Archivo entrante\".\n- **L331–332** `controller` para cerrar el diálogo solo.\n- **L337–344** `setTimeout(..., ACCEPT_TIMEOUT)` → a los **60 s** sin respuesta, `reason = 'timeout'` y cierra el diálogo.\n- **L346–355** si el celular se desconecta → `reason = 'cancelled'` y cierra el diálogo.\n- **L357–379** opciones del diálogo: tipo pregunta, título, mensaje, detalle (nombre, tamaño, carpeta), **botones `['Aceptar', 'Rechazar']`**, `defaultId: 0` (Enter = Aceptar), `cancelId: 1` (Esc o X = Rechazar) y `signal` para poder cerrarlo.\n- **L383–386** ⭐ **`await dialog.showMessageBox(win, options)`** → muestra el diálogo y la promesa **se resuelve cuando tocan un botón**. `response` = índice del botón tocado.\n- **L389–393** si se cerró solo (timeout o desconexión), devolvemos el motivo.\n- **L395–397** `response === 0` → `'accepted'`; si no, `'rejected'`.\n- **L399 en adelante** `finally` → **siempre** limpia: frena el timer, deja de escuchar la señal y para el titileo.\n\n### 📖 Palabras técnicas\n- **dialog.showMessageBox**: diálogo **nativo** del sistema operativo (no es HTML). Devuelve una promesa.\n- **Modal**: diálogo que bloquea su ventana hasta que respondés (al pasarle `win` queda pegado a nuestra ventana).\n- **setTimeout(fn, ms)**: ejecuta algo **una vez** después de cierto tiempo.\n- **finally**: bloque que se ejecuta **siempre**, salga bien o mal.\n\n### 🎤 Qué decirle al profe\n> \"`dialog.showMessageBox` devuelve una promesa que se resuelve cuando el usuario toca un botón. Le agregamos un timeout de 60 s y la cancelación si el celular se va, para que la petición nunca quede colgada para siempre.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2300,
+          "character": 1
+        },
+        "end": {
+          "line": 2356,
+          "character": 200
+        }
+      },
+      "title": "3b) Si rechaza: 403 y un mensaje claro",
+      "description": "## Qué hace cada línea\n- **L2300–2302** si la respuesta no es `'accepted'`...\n- **L2304–2307** `reason` → el texto que verá el celular: \"El usuario de la PC rechazó el archivo\" o \"Nadie respondió en 60 s\".\n- **L2310–2340** le avisamos a **nuestra** pantalla (React) con `transfer-error` y `rejected: true`, para mostrar 🚫 en gris (no como un error rojo).\n- **L2339–2354** respondemos **`403`** con `{ accepted: false, error: reason }`.\n- **L2356** `return` → **no se crea token**: no se puede subir nada.\n\n### 🎤 Qué decirle al profe\n> \"Si rechaza, respondemos 403 con el motivo en JSON. El celular lo muestra como 'Envío rechazado' y la app sigue funcionando: no es una excepción, es una respuesta normal.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2360,
+          "character": 1
+        },
+        "end": {
+          "line": 2388,
+          "character": 200
+        }
+      },
+      "title": "3a) Si acepta: el token",
+      "description": "## Qué hace cada línea\n- **L2360–2361** `randomUUID()` → genera un código único imposible de adivinar (por ejemplo `65889f60-2d0c-466c-...`).\n- **L2363–2372** lo guardamos en `acceptedUploads` con:\n  - `ip` → **solo ese celular** puede usarlo.\n  - `fileName` → el nombre que se aceptó.\n  - `expiresAt` → vence en 2 minutos.\n- **L2374–2388** respondemos **`200`** `{ accepted: true, token }`.\n\n### 📖 Palabras técnicas\n- **UUID**: identificador universal único de 128 bits. La probabilidad de que se repita es prácticamente cero.\n\n### 🎤 Qué decirle al profe\n> \"Si acepta, generamos un UUID como token, atado a la IP del celular y con vencimiento.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 7\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2419,
+          "character": 1
+        },
+        "end": {
+          "line": 2467,
+          "character": 200
+        }
+      },
+      "title": "4) /upload verifica el token",
+      "description": "## Qué hace cada línea\n- **L2419–2422** leemos `token` de la URL.\n- **L2424–2427** lo buscamos en `acceptedUploads`.\n- **L2430–2432** `delete` → **un solo uso**: aunque lo vuelvan a mandar, ya no sirve.\n- **L2434–2438** rechazamos si: no existe, **viene de otra IP** o **venció**.\n- **L2445–2462** respondemos **403** con el motivo.\n- **L2465** `req.resume()` → descartamos los bytes que ya venían en camino (para no dejar la conexión trabada) **sin escribir nada en el disco**.\n\n### 🎤 Qué decirle al profe\n> \"Sin token válido, `/upload` responde 403 y no toca el disco. Así es imposible saltearse el diálogo, aunque alguien mande el pedido a mano. Lo probamos con curl.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 8\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2836,
+          "character": 1
+        },
+        "end": {
+          "line": 2874,
+          "character": 200
+        }
+      },
+      "title": "El celular muestra el rechazo (sin romperse)",
+      "description": "## Qué hace cada línea\n- **L2836–2843** `prepare.json()` lee la respuesta. Si `!prepare.ok` (no es 200) o no hay `token` → **rechazado**.\n- **L2845–2853** el motivo viene en `answer.error`.\n- **L2855–2867** `setTransfer(...)` → la tarjeta muestra 🚫 y el mensaje, con `rejected: true`.\n- **L2869–2872** `Alert.alert('🚫 Envío rechazado', ...)` → cartel nativo.\n- **L2874** `return` → termina tranquilo. **No es una excepción**: el archivo queda elegido y está el botón \"Volver a enviar\".\n\n### 📖 Palabras técnicas\n- **Alert.alert**: cartel nativo de Android con título, mensaje y botones.\n- **Estado (`setTransfer`)**: dato de React que, al cambiar, redibuja la pantalla.\n\n### 🎤 Qué decirle al profe\n> \"El rechazo no tira error: es un camino normal del código. Mostramos un Alert y la tarjeta queda en gris con 'Volver a enviar'.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 9\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 1614,
+          "character": 1
+        },
+        "end": {
+          "line": 1670,
+          "character": 200
+        }
+      },
+      "title": "Al revés: PC → celular, el celular acepta",
+      "description": "## Qué hace cada línea\n- **L1614** `askToAcceptIncoming(ip, item)` → se llama cuando el celular ve un archivo nuevo en `/incoming`.\n- **L1620** `handshakeRef.current = true` → mientras el cartel está abierto, no se muestra otro ni arranca otra transferencia.\n- **Alert.alert(...)** con dos botones:\n  - **Rechazar** → `POST /discard/:id?reason=rejected`. La PC lo saca de la cola y muestra \"El celular rechazó el archivo\".\n  - **Aceptar** → `downloadIncoming(ip, item)` empieza la descarga.\n- `cancelable: false` → no se puede cerrar tocando afuera: hay que elegir.\n\n### 📖 Palabras técnicas\n- **useRef**: guarda un valor que **no** redibuja la pantalla al cambiar. Sirve para \"banderas\" como `handshakeRef`.\n- **Polling**: preguntar cada cierto tiempo \"¿hay algo nuevo?\" (el celular pregunta a `/incoming` cada 2 s).\n\n### 🎤 Qué decirle al profe\n> \"En el otro sentido, el celular pregunta cada 2 s si hay archivos y, antes de bajarlos, muestra Aceptar o Rechazar. Si rechaza, le avisa a la PC.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 04 10\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

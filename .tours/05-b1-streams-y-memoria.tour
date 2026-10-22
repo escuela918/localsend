@@ -1,0 +1,127 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "05 · B1: Streams y memoria",
+  "description": "Pregunta B1: ¿10 GB van a la RAM? No: streams de 1 MB con backpressure",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1925,
+          "character": 1
+        },
+        "end": {
+          "line": 1933,
+          "character": 200
+        }
+      },
+      "title": "Leer el archivo por partes (createReadStream)",
+      "description": "## Qué hace cada línea\n- **L1925–1926** `fs.createReadStream(file.filePath, {...})` → abre el archivo **para leerlo de a pedazos**, no entero.\n- **L1929** `start` → desde qué byte leer (0 normalmente; otro número si se está **reanudando**).\n- **L1930–1931** `highWaterMark: 1024 * 1024` → cada pedazo mide **1 MB**.\n\n### ¿Cuánta RAM usa?\n| Archivo | Con `readFile` (mal) | Con stream (nosotros) |\n|---|---|---|\n| 500 MB | 500 MB | ~1–2 MB |\n| 10 GB | ❌ se rompe | ~1–2 MB |\n\n### 📖 Palabras técnicas\n- **Stream** (\"flujo\"): procesar datos **de a pedazos** a medida que llegan o se leen, en vez de todo junto.\n- **Chunk**: cada pedazo (acá, 1 MB).\n- **highWaterMark**: el tamaño del buffer interno del stream: cuántos bytes lee por vez.\n- **RAM**: memoria rápida y limitada de la computadora. Si un programa la llena, se cuelga.\n- **Buffer**: zona de memoria temporal donde quedan los bytes mientras pasan.\n\n### 🎤 Qué decirle al profe\n> \"No cargamos el archivo en RAM. `createReadStream` con `highWaterMark` de 1 MB lee de a 1 MB. Con 10 GB usa la misma memoria que con 1 MB.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2135,
+          "character": 1
+        },
+        "end": {
+          "line": 2137,
+          "character": 200
+        }
+      },
+      "title": "pipe: conectar el disco con la red (backpressure)",
+      "description": "## Qué hace\n`readStream.pipe(res)` → **conecta** el stream que lee el disco con la respuesta HTTP (la red). Cada MB leído se manda.\n\n### ⭐ Backpressure (la palabra clave)\nEl disco es **más rápido** que el Wi-Fi. Sin control, leeríamos todo y se acumularía en RAM esperando salir.\n\n`pipe` lo resuelve solo:\n1. Si el buffer de salida se llena, `res.write()` devuelve `false`.\n2. `pipe` **pausa** la lectura del disco (`readStream.pause()`).\n3. Cuando la red vacía el buffer, emite `'drain'`.\n4. `pipe` **reanuda** la lectura (`readStream.resume()`).\n\n### 📖 Palabras técnicas\n- **pipe** (\"tubería\"): conecta la salida de un stream con la entrada de otro.\n- **Backpressure** (\"contrapresión\"): cuando el destino es más lento, le avisa al origen que **frene**.\n- **drain** (\"vaciar\"): evento que dice \"ya hay lugar, podés seguir mandando\".\n\n### 🎤 Qué decirle al profe\n> \"Usamos `pipe`, que maneja la backpressure: si la red va más lenta que el disco, pausa la lectura hasta el evento `drain`. Así la memoria nunca crece.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1839,
+          "character": 1
+        },
+        "end": {
+          "line": 1849,
+          "character": 200
+        }
+      },
+      "title": "Range: reanudar desde la mitad",
+      "description": "## Qué hace cada línea\n- **L1839–1844** busca el header `Range: bytes=300000000-` con una regex. `(\\d+)` captura el número.\n- **L1846–1849** `start` = ese número, o `0` si no hay Range.\n\nDespués responde **206 Partial Content** con solo lo que falta, y `createReadStream({ start })` empieza a leer desde ahí.\n\n### 📖 Palabras técnicas\n- **Header Range**: el cliente pide **solo una parte** del archivo.\n- **206 Partial Content**: \"te mando solo una parte\".\n- **416 Range Not Satisfiable**: \"ese byte no existe\".\n\n### 🎤 Qué decirle al profe\n> \"Si se corta la descarga, el celular pide `Range: bytes=N-` y le mandamos solo lo que falta. No empieza de cero.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2522,
+          "character": 1
+        },
+        "end": {
+          "line": 2531,
+          "character": 200
+        }
+      },
+      "title": "Escribir lo recibido por partes (createWriteStream)",
+      "description": "## Qué hace cada línea\n- **L2522–2523** `fs.createWriteStream(finalPath, {...})` → abre el archivo destino para **escribirlo de a pedazos**.\n- **L2526–2527** `flags: 'w'` → modo escritura (crea el archivo).\n- **L2528–2529** buffer de 1 MB.\n\nY en **L2880**: `req.pipe(writeStream)` → lo que llega por la red (`req` también es un stream) va directo al disco, **con backpressure**: si el disco se atrasa, TCP le dice al celular que frene.\n\n### 📖 Palabras técnicas\n- **req es un stream**: en Node, el cuerpo de un pedido HTTP llega como stream, no como un bloque.\n\n### 🎤 Qué decirle al profe\n> \"Para recibir es lo mismo al revés: `req.pipe(fs.createWriteStream(...))`. Cada chunk que llega por la red se escribe en el disco y se libera de la memoria.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 2744,
+          "character": 1
+        },
+        "end": {
+          "line": 2760,
+          "character": 200
+        }
+      },
+      "title": "Integridad: el peso exacto",
+      "description": "## Qué hace cada línea\n- **L2744–2747** `fs.statSync(finalPath).size` → cuántos bytes quedaron **realmente** en el disco.\n- **L2750–2754** si no coincide con `expectedSize` (el `Content-Length` que dijo el celular)...\n- ...se **borra** el archivo (`unlinkSync`), se avisa \"llegó incompleto\" y se responde 400.\n\nEl celular hace lo mismo al descargar (`file.size !== item.fileSize`, `index.tsx` L2449).\n\n### 📖 Palabras técnicas\n- **Integridad**: que el archivo llegue **idéntico**, sin bytes de más ni de menos.\n- **stat**: información de un archivo: tamaño, fechas.\n- **unlink**: borrar un archivo.\n\n### 🎤 Qué decirle al profe\n> \"Al terminar comparamos el tamaño real en disco con el Content-Length. Si no coincide, lo borramos. Lo probamos y quedó idéntico byte a byte.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 655,
+          "character": 1
+        },
+        "end": {
+          "line": 698,
+          "character": 200
+        }
+      },
+      "title": "Progreso fluido sin congelar la UI",
+      "description": "## Qué hace cada línea\n- **L657–662** `update(currentBytes)` se llama en **cada chunk**.\n- **L667–672** ⭐ **throttle**: si pasaron menos de 200 ms desde el último aviso, `return` → no manda nada.\n- **L675–677** velocidad instantánea = bytes nuevos / tiempo.\n- **L679–682** ⭐ **promedio móvil**: `speed * 0.7 + instant * 0.3` → 70 % de lo anterior y 30 % de lo nuevo. Así el número no salta.\n- **L693–696** `webContents.send('transfer-progress', ...)` → manda a React %, bytes, velocidad y ETA.\n\n### 📖 Palabras técnicas\n- **Throttle**: limitar cuántas veces por segundo se ejecuta algo.\n- **IPC**: comunicación entre el proceso main y la ventana (React).\n- **Promedio móvil exponencial (EMA)**: suaviza un valor que cambia mucho.\n- **ETA**: tiempo estimado que falta = (total − enviado) / velocidad.\n\n### 🎤 Qué decirle al profe\n> \"Un archivo de 500 MB tiene 500 chunks. Si mandáramos cada uno a React, saturaríamos el IPC y la UI se congelaría. Por eso mandamos como máximo cada 200 ms, y la velocidad con promedio móvil para que la barra sea fluida.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2416,
+          "character": 1
+        },
+        "end": {
+          "line": 2433,
+          "character": 200
+        }
+      },
+      "title": "Celular: descarga nativa directo al disco",
+      "description": "## Qué hace cada línea\n- **L2420–2427** `File.createDownloadTask(url, destination, { onProgress })` → descarga hecha por **código nativo de Android**, que escribe **directo en el archivo** a medida que llega.\n- **L2429–2430** guardamos la tarea en `activeTaskRef` para poder **cancelarla**.\n- **L2432–2433** `await task.downloadAsync()` → espera a que termine.\n\n### 📖 Palabras técnicas\n- **Nativo**: código de Android (Kotlin/Java), no JavaScript. Es más rápido y no pasa los bytes por JS.\n- **Bridge**: el puente entre JS y nativo en React Native. Pasar 500 MB por ahí lo colapsaría.\n- **onProgress**: callback que avisa cuántos bytes van.\n\n### 🎤 Qué decirle al profe\n> \"En el celular no usamos `fetch` y después guardar: eso cargaría todo en memoria. Usamos la tarea nativa de expo-file-system, que escribe directo al disco.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 7\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-movil/src/app/index.tsx",
+      "selection": {
+        "start": {
+          "line": 2911,
+          "character": 1
+        },
+        "end": {
+          "line": 2925,
+          "character": 200
+        }
+      },
+      "title": "Celular: subida binaria (sin base64)",
+      "description": "## Qué hace cada línea\n- `file.createUploadTask(uploadUrl, {...})` → subida nativa por partes.\n- `httpMethod: 'POST'`.\n- `uploadType: 0` → **BINARY_CONTENT**: manda el archivo **tal cual**, byte por byte.\n- `mimeType` y `Content-Type` → el tipo del archivo.\n\n### 📖 Palabras técnicas\n- **Base64**: forma de escribir bytes como texto (letras y números). **Ocupa un 33 % más** y obliga a tener **todo** el archivo en memoria como texto. Por eso **no** lo usamos.\n- **Multipart**: otra forma de subir archivos (la de los formularios web). Agrega separadores; para un solo archivo, el binario directo es más simple.\n\n### 🎤 Qué decirle al profe\n> \"Subimos en binario puro con `uploadType: 0`, sin base64, que inflaría el tamaño un 33 % y cargaría todo en RAM.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 05 8\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

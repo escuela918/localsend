@@ -1,6 +1,17 @@
+// ============================================================
+// PANTALLA DE LA PC (React)
+// ============================================================
+//
+// Este archivo solo DIBUJA la pantalla y reacciona a lo que
+// toca el usuario. No usa la red ni el disco: todo eso lo
+// hace electron/main.ts. Para hablar con main usamos
+// window.electronAPI, que es el "puente" que arma preload.ts.
+
 import { useEffect, useState } from 'react'
 import './App.css'
 
+// Forma de un dispositivo de la lista (nombre, IP, puerto
+// y si es celular o PC).
 interface Device {
   alias: string
   ip: string
@@ -8,8 +19,15 @@ interface Device {
   deviceType: 'desktop' | 'mobile'
 }
 
+// Estados posibles de una transferencia:
+// queued = en la cola, esperando que el celular lo pida
+// active = pasando datos
+// done   = terminó bien
+// error  = se cortó o lo rechazaron
 type TransferStatus = 'queued' | 'active' | 'done' | 'error'
 
+// Todo lo que mostramos de la transferencia actual: nombre,
+// sentido (recibir/enviar), estado, %, velocidad, etc.
 interface Transfer extends Partial<TransferInfo> {
   fileName: string
   direction: 'receive' | 'send'
@@ -17,9 +35,11 @@ interface Transfer extends Partial<TransferInfo> {
 }
 
 // ============================================================
-// FORMATOS
+// FORMATOS (convertir números a texto fácil de leer)
 // ============================================================
 
+// Bytes → "1.5 MB". El logaritmo calcula cuántas veces hay
+// que dividir por 1024 para elegir la unidad.
 function formatBytes(bytes = 0) {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -27,10 +47,13 @@ function formatBytes(bytes = 0) {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+// Bytes por segundo → "12.3 MB/s".
 function formatSpeed(bytesPerSecond = 0) {
   return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`
 }
 
+// Segundos restantes → "2 min 05 s". Si todavía no hay
+// velocidad medida, muestra "calculando...".
 function formatEta(seconds: number | null | undefined) {
   if (seconds == null) return 'calculando...'
   if (seconds < 60) return `${seconds} s`
@@ -40,6 +63,14 @@ function formatEta(seconds: number | null | undefined) {
 }
 
 function App() {
+  // ESTADOS (useState): datos que, cuando cambian, hacen que
+  // React vuelva a dibujar la pantalla sola.
+  // deviceInfo   = nombre e IP de esta PC
+  // serverStatus = si los servidores arrancaron (LED)
+  // devices      = celulares encontrados
+  // transfer     = la transferencia actual (barra)
+  // isDragging   = si el usuario está arrastrando un archivo encima
+  // selectedFile = ruta del archivo elegido
   const [deviceInfo, setDeviceInfo] = useState<any>(null)
   const [serverStatus, setServerStatus] = useState({ udp: false, tcp: false })
   const [devices, setDevices] = useState<Device[]>([])
@@ -47,31 +78,37 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
+  // useEffect con [] al final = se ejecuta UNA sola vez,
+  // cuando se abre la pantalla. Acá nos "suscribimos" a los
+  // avisos que manda main.ts (como activar notificaciones).
   useEffect(() => {
-    // Obtener info del dispositivo local
+    // Le pedimos a main el nombre y la IP de esta PC
     window.electronAPI.getDeviceInfo().then(setDeviceInfo)
 
-    // Escuchar estado de servidores
+    // Cuando main avisa que arrancaron los servidores,
+    // lo guardamos (así el LED pasa a verde)
     window.electronAPI.onServerStatus((status: any) => {
       setServerStatus(prev => ({ ...prev, ...status }))
     })
 
-    // Escuchar dispositivos encontrados (Celular)
+    // Apareció un celular: lo agregamos a la lista
     window.electronAPI.onDeviceFound((device: Device) => {
       setDevices(prev => {
-        // Filtramos cualquier versión vieja de este mismo alias para evitar fantasmas
+        // Sacamos la versión vieja de ese mismo celular (misma
+        // IP o mismo nombre) para que no aparezca repetido
         const filtered = prev.filter(d => d.ip !== device.ip && d.alias !== device.alias);
         return [...filtered, device]
       })
     })
 
-    // El main lo saca cuando pasa el TTL sin latidos
-    // (ej: le apagaron el Wi-Fi al celular).
+    // main avisa que un celular pasó 5 s sin dar señales
+    // (ej: le apagaron el Wi-Fi): lo sacamos de la lista.
     window.electronAPI.onDeviceRemoved((device: Device) => {
       setDevices(prev => prev.filter(d => d.ip !== device.ip))
     })
 
-    // PC → celular: el archivo queda esperando a que el celular lo pida
+    // PC → celular: el archivo quedó en la cola, esperando
+    // que el celular lo pida. Mostramos la barra en 0 %.
     window.electronAPI.onTransferQueued(data => {
       setTransfer({
         direction: 'send',
@@ -84,20 +121,27 @@ function App() {
       })
     })
 
-    // Progreso (en los dos sentidos)
+    // Llegó un aviso de progreso (en los dos sentidos):
+    // actualizamos %, velocidad y tiempo restante.
+    // "...data" = copiar todos los datos que mandó main.
     window.electronAPI.onTransferProgress(data => {
       setTransfer({ ...data, status: 'active' })
     })
 
+    // Terminó bien
     window.electronAPI.onTransferComplete(data => {
       setTransfer({ ...data, status: 'done' })
     })
 
-    // Error: NO borramos la barra. Mostramos en qué % quedó y el motivo.
+    // Error: NO borramos la barra. Mostramos en qué % quedó
+    // y el motivo.
     window.electronAPI.onTransferError(data => {
       setTransfer({ ...data, status: 'error' })
     })
 
+    // Al cerrar la pantalla dejamos de escuchar. Si no, al
+    // recargar quedarían dos "oídos" y cada aviso llegaría
+    // dos veces.
     return () => {
       ;['server-status', 'device-found', 'device-removed', 'transfer-progress', 'transfer-complete',
         'transfer-error', 'transfer-queued', 'send-progress']
@@ -105,7 +149,11 @@ function App() {
     }
   }, [])
 
-  // Drag & Drop
+  // ARRASTRAR Y SOLTAR (drag & drop)
+  // preventDefault() evita que Electron abra el archivo en
+  // la ventana (lo que hace el navegador por defecto).
+  // getFilePath() le pide al preload la ruta real del archivo
+  // en el disco (React solo no la puede saber).
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(true)
@@ -118,6 +166,9 @@ function App() {
     if (file) setSelectedFile(window.electronAPI.getFilePath(file))
   }
 
+  // Click en un celular de la lista: le pedimos a main que
+  // le mande el archivo elegido. Si ya hay una transferencia
+  // en curso, no dejamos empezar otra.
   const sendToDevice = async (device: Device) => {
     if (!selectedFile) return alert('Primero arrastrá un archivo')
     if (transfer && (transfer.status === 'active' || transfer.status === 'queued')) {
@@ -134,20 +185,29 @@ function App() {
     }
   }
 
-  // Click en la zona: abre el selector de archivos del sistema
+  // Click en la zona: abre el selector de archivos de Windows.
+  // Al final vaciamos el input para poder elegir el mismo
+  // archivo otra vez si hace falta.
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) setSelectedFile(window.electronAPI.getFilePath(file))
     e.target.value = ''
   }
 
+  // Valores calculados para dibujar:
+  // isOnline     = los dos servidores andando (LED verde)
+  // busy         = hay una transferencia en curso
+  // selectedName = solo el nombre del archivo, sin la carpeta
   const isOnline = serverStatus.udp && serverStatus.tcp
   const busy = transfer?.status === 'active' || transfer?.status === 'queued'
   const selectedName = selectedFile?.split(/[\\/]/).pop()
 
+  // Lo que se ve en pantalla (JSX = HTML dentro de JS).
+  // {condición && (...)} = mostrar eso solo si la condición
+  // es verdadera.
   return (
     <div className="app">
-      {/* Header */}
+      {/* Encabezado: nombre de la PC, IP y LED de estado */}
       <header className="header">
         <div className="logo">📡</div>
         <div>
@@ -214,12 +274,13 @@ function App() {
         )}
       </section>
 
-      {/* Monitor de transferencia */}
+      {/* Barra de transferencia: %, velocidad, tiempo restante
+          y, si falló, el motivo y en qué % quedó */}
       {transfer && (
         <section className={`card transfer transfer--${transfer.status}`}>
           <div className="transfer-header">
             <div className="transfer-icon">
-              {transfer.status === 'done' ? '✅' : transfer.status === 'error' ? '⚠️' : transfer.direction === 'receive' ? '📥' : '📤'}
+              {transfer.status === 'done' ? '✅' : transfer.rejected ? '🚫' : transfer.status === 'error' ? '⚠️' : transfer.direction === 'receive' ? '📥' : '📤'}
             </div>
             <div className="transfer-title">
               <small>{transfer.direction === 'receive' ? 'Recibiendo del celular' : 'Enviando al celular'}</small>
@@ -233,7 +294,7 @@ function App() {
           </div>
 
           {transfer.status === 'queued' && (
-            <p className="transfer-detail">⏳ Esperando que el celular empiece la descarga...</p>
+            <p className="transfer-detail">⏳ Esperando que el celular acepte el archivo...</p>
           )}
 
           {transfer.status === 'active' && (
@@ -251,7 +312,14 @@ function App() {
             </p>
           )}
 
-          {transfer.status === 'error' && (
+          {transfer.status === 'error' && transfer.rejected && (
+            <div className="transfer-error transfer-error--rejected">
+              <strong>{transfer.message}</strong>
+              <p className="transfer-detail">No se transfirió ningún dato. La app sigue lista para otros envíos.</p>
+            </div>
+          )}
+
+          {transfer.status === 'error' && !transfer.rejected && (
             <div className="transfer-error">
               <strong>{transfer.message}</strong>
               <p className="transfer-detail">

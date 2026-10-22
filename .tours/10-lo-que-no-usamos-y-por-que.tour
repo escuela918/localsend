@@ -1,0 +1,111 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "10 · Lo que NO usamos y por qué",
+  "description": "Alternativas: qué son, para qué sirven y por qué elegimos otra cosa",
+  "steps": [
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 65,
+          "character": 1
+        },
+        "end": {
+          "line": 68,
+          "character": 200
+        }
+      },
+      "title": "WebSockets (vs. HTTP)",
+      "description": "## ❓ Qué es\nUna conexión **permanente y bidireccional** sobre TCP: cliente y servidor se mandan mensajes cuando quieren, sin pedido y respuesta. Se usa en chats, juegos online y notificaciones en vivo.\n\n## ✅ Qué usamos\n**HTTP** con pedidos separados (`/prepare-upload`, `/upload`, `/download`).\n\n## 🤔 Por qué\n- HTTP ya trae **`Content-Length`** (integridad) y **`Range`** (reanudar). Con WebSocket tendríamos que **inventar** nuestro propio protocolo: marcar qué mensaje es JSON y cuál binario, numerar chunks, confirmar cada uno…\n- En Expo, las tareas **nativas** de descarga y subida (que escriben directo al disco) funcionan con HTTP, no con WebSocket. Con WebSocket los bytes pasarían por JavaScript.\n- El LocalSend original **también usa HTTP**.\n\n## 🎤 Si preguntan\n> \"Evaluamos WebSockets, pero HTTP nos daba gratis el tamaño, la reanudación y el streaming nativo en el celular. WebSocket conviene para mensajes chicos en tiempo real, no para archivos grandes.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Socket.IO y Express",
+      "description": "## ❓ Qué son\n- **Socket.IO**: librería sobre WebSockets que agrega salas, reconexión automática y eventos con nombre.\n- **Express**: framework para hacer servidores HTTP con rutas más cómodas (`app.get('/ping', ...)`).\n\n## 🤔 Por qué no\nNuestro servidor tiene pocas rutas. Con el módulo `http` de Node alcanza: **cero dependencias**, menos peso y **entendemos cada línea** (no hay \"magia\" escondida en un framework). Además, Socket.IO necesita su propio cliente en el celular.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "TCP crudo (módulo net)",
+      "description": "## ❓ Qué es\n`net.createServer` de Node: un socket TCP \"pelado\", sin HTTP. Mandás bytes y tenés que definir **vos** dónde empieza y termina cada mensaje.\n\n## 🤔 Por qué no\nTendríamos que diseñar un protocolo propio: un header con el tamaño, separar metadatos de datos, códigos de error… **HTTP ya resuelve todo eso** y es estándar. En el celular, además, no hay sockets TCP crudos sin librerías nativas extra.\n\n## 🎤 Si preguntan\n> \"HTTP **es** TCP con un formato estándar arriba. Usar TCP crudo sería reinventar HTTP.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 3\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 525,
+          "character": 1
+        },
+        "end": {
+          "line": 530,
+          "character": 200
+        }
+      },
+      "title": "Multicast (vs. broadcast)",
+      "description": "## ❓ Qué es\nMandar a un **grupo** de dispositivos que se \"suscribieron\" a una dirección especial (224.0.0.0 a 239.255.255.255). Solo lo reciben los interesados. El LocalSend original usa `224.0.0.167`.\n\n## ✅ Qué usamos\n**Broadcast**: le llega a **todos** los de la red.\n\n## 🤔 Por qué\n- Broadcast es **más simple**: no hay que unirse a grupos (`addMembership`).\n- Muchos routers hogareños y de facultad **filtran o rompen multicast** (IGMP snooping). Broadcast funciona casi siempre.\n- En una red local con pocos dispositivos, la \"molestia\" del broadcast es insignificante: un paquete de 100 bytes por segundo.\n\n## 🎤 Si preguntan\n> \"Multicast es más eficiente en redes grandes, pero el broadcast es más simple y más compatible. Sería una mejora futura.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 4\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "mDNS / Bonjour / Zeroconf",
+      "description": "## ❓ Qué es\nProtocolos de **descubrimiento de servicios** estándar: los dispositivos anuncian \"soy `_localsend._tcp.local`\". Así funcionan las impresoras de red y Chromecast.\n\n## 🤔 Por qué no\n- Requiere librerías nativas extra en Android y en Windows (Bonjour no viene instalado).\n- Por dentro **también usa multicast UDP**, así que tiene los mismos problemas con algunos routers.\n- Nuestro beacon UDP hace lo mismo en 20 líneas que entendemos completas.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 5\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "WebRTC",
+      "description": "## ❓ Qué es\nTecnología para conexiones **directas entre dispositivos** (P2P), con video, audio y datos. Atraviesa routers y NAT usando servidores STUN/TURN.\n\n## 🤔 Por qué no\n- Está pensado para **internet**. En red local no hace falta atravesar NAT.\n- Necesita un **servidor de señalización** para que los dos lados se encuentren. Es mucho más complejo.\n- Nuestro requisito era **sin internet y en la misma red**: HTTP directo es lo más simple y rápido.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 6\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "HTTPS / TLS (cifrado)",
+      "description": "## ❓ Qué es\nHTTP **cifrado**. Nadie en la red puede leer ni modificar lo que viaja. El LocalSend original lo usa con certificados autofirmados.\n\n## 🤔 Por qué no (y es una mejora honesta)\n- En red local, **sin internet**, no hay autoridad certificante: habría que generar certificados autofirmados y que el celular los acepte, lo que agrega mucha complejidad para un proyecto académico.\n- Mitigamos con el **diálogo de aceptación** y el **token de un solo uso**.\n\n## 🎤 Si preguntan\n> \"Es una limitación consciente. En producción usaríamos HTTPS con certificados autofirmados y pinning, como el LocalSend real.\"\n\n### 📖 Palabras técnicas\n- **TLS**: el protocolo de cifrado que usa HTTPS.\n- **Certificado autofirmado**: firmado por uno mismo, no por una entidad reconocida.\n- **Pinning**: confiar solo en un certificado específico.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 7\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 1925,
+          "character": 1
+        },
+        "end": {
+          "line": 1933,
+          "character": 200
+        }
+      },
+      "title": "fs.readFile y base64 (cargar todo en memoria)",
+      "description": "## ❓ Qué son\n- **`fs.readFile`**: lee el archivo **entero** y te lo da de una vez en memoria.\n- **Base64**: convierte bytes en texto (A–Z, a–z, 0–9, +, /). Se usa para meter imágenes en JSON o en HTML.\n\n## 🤔 Por qué no\n| | readFile / base64 | createReadStream (nosotros) |\n|---|---|---|\n| RAM con 500 MB | 500 MB (o 667 MB en base64) | ~1 MB |\n| 10 GB | ❌ crash (Node tiene un límite de ~2–4 GB por buffer) | ✅ |\n| Empieza a enviar | cuando terminó de leer todo | enseguida |\n\nLa rúbrica dice textual: \"**Insuficiente: cargan archivos completos en memoria**\".\n\n## 🎤 Si preguntan\n> \"`readFile` y base64 cargan todo en RAM, y base64 además suma un 33 %. Con streams la memoria es constante, sin importar el tamaño.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 8\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "file": "aplicacion-de-escritorio/electron/main.ts",
+      "selection": {
+        "start": {
+          "line": 3317,
+          "character": 1
+        },
+        "end": {
+          "line": 3321,
+          "character": 200
+        }
+      },
+      "title": "nodeIntegration: true (Node en React)",
+      "description": "## ❓ Qué es\nLa configuración vieja de Electron: la página tiene **Node completo** y en React podrías hacer `require('fs')` directamente.\n\n## 🤔 Por qué no\n- **Inseguro**: cualquier script inyectado (XSS) tendría acceso al disco y podría ejecutar programas.\n- Electron lo **desaconseja** desde la versión 5 y lo trae desactivado por defecto.\n- Con Vite, React se empaqueta para navegador: `fs` no existe.\n\nTambién existía el módulo **`remote`** (llamar al main directo desde React). Fue **eliminado** de Electron por los mismos motivos de seguridad.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 9\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Chunking manual con confirmación (ACK)",
+      "description": "## ❓ Qué es\nPartir el archivo en bloques numerados (chunk 1, 2, 3…), mandar cada uno como un pedido separado y esperar un \"recibido\" (**ACK**) antes de mandar el siguiente.\n\n## 🤔 Por qué no\n**TCP ya hace eso por dentro**: numera, confirma y retransmite los paquetes perdidos. Hacerlo de nuevo arriba es duplicar trabajo y **más lento** (hay que esperar cada ACK). Los streams ya dividen en chunks de 1 MB.\n\n## 🎤 Si preguntan\n> \"Sí hacemos chunking: el stream lee de a 1 MB. Lo que no hacemos es confirmar cada chunk, porque TCP ya garantiza el orden y la entrega.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 10\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Hash SHA-256 / MD5 (verificación fuerte)",
+      "description": "## ❓ Qué es\nCalcular la \"huella digital\" del archivo en los dos lados y compararla. Si cambia **un solo bit**, la huella cambia completamente.\n\n## ✅ Qué usamos\nComparación del **tamaño exacto en bytes**.\n\n## 🤔 Por qué no (todavía)\n- TCP ya tiene un **checksum** por paquete que detecta la gran mayoría de los errores.\n- Calcular SHA-256 de 10 GB lleva tiempo extra (hay que leer el archivo de nuevo).\n- **Mejora propuesta:** calcularlo **mientras** se hace el stream (`crypto.createHash('sha256')` en el mismo `pipe`), sin leer dos veces.\n\n### 📖 Palabras técnicas\n- **MD5**: hash viejo y rápido, ya no se considera seguro.\n- **Checksum**: suma de verificación simple dentro de cada paquete TCP.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 11\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Push al celular (vs. polling /incoming)",
+      "description": "## ❓ Qué es\nQue la PC le **avise** al celular \"tenés un archivo\" en el momento, en vez de que el celular pregunte cada 2 s.\n\n## ✅ Qué usamos\n**Polling**: el celular hace `GET /incoming` cada 2 s.\n\n## 🤔 Por qué\n- Para hacer push, el celular tendría que levantar **su propio servidor HTTP**, y React Native/Expo no lo trae (habría que sumar una librería nativa). O una conexión WebSocket permanente.\n- Un pedido cada 2 s pesa unos cientos de bytes: insignificante.\n- La demora máxima es de 2 s, aceptable para el usuario.\n\n### 📖 Palabras técnicas\n- **Polling**: preguntar periódicamente.\n- **Push**: que te avisen cuando hay novedades.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 12\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Sobrescribir o preguntar \"Reemplazar\"",
+      "description": "## ❓ Qué es\nCuando el nombre ya existe: **pisar** el archivo viejo, o mostrar un diálogo \"Reemplazar / Mantener ambos / Omitir\".\n\n## ✅ Qué usamos\n**Mantener ambos** automáticamente: `foto(1).jpg`.\n\n## 🤔 Por qué\n- Sobrescribir puede **borrar datos** del usuario sin querer.\n- Preguntar agrega otro diálogo más en cada transferencia.\n- \"Mantener ambos\" es lo que hace Windows por defecto y **nunca pierde información**.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 13\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Expo Go (vs. APK / development build)",
+      "description": "## ❓ Qué es\n**Expo Go** es una app ya hecha que corre tu código sin compilar. Muy cómoda para desarrollar.\n\n## 🤔 Por qué no alcanza\nExpo Go solo trae las librerías nativas de Expo. **`react-native-udp` es nativa** y no está incluida, así que en Expo Go no hay UDP. Por eso entregamos un **APK** propio (development build) que la incluye.\n\n## 🎤 Si preguntan\n> \"Necesitábamos UDP, que es una librería nativa, así que compilamos nuestro propio APK con EAS en vez de usar Expo Go.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 14\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "Bluetooth / Wi-Fi Direct",
+      "description": "## ❓ Qué son\n- **Bluetooth**: conexión inalámbrica de corto alcance, sin router.\n- **Wi-Fi Direct**: Wi-Fi entre dos dispositivos sin router.\n\n## 🤔 Por qué no\n- **Bluetooth es lento**: unos 2–3 Mbps. Un video de 500 MB tardaría más de 20 minutos, contra 1–2 minutos por Wi-Fi.\n- Wi-Fi Direct tiene poco soporte en Windows y en Electron.\n- El enunciado pide trabajar sobre **red compartida**.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 10 15\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "00 · Cómo usar esta guía",
+  "description": "Leé esto primero",
+  "isPrimary": true,
+  "steps": [
+    {
+      "title": "Bienvenida",
+      "description": "## 👋 Cómo usar esta guía\n\nEsto es un **recorrido guiado** por el código. En cada paso:\n\n1. VS Code abre el archivo y **resalta las líneas** que estamos explicando.\n2. Acá a la derecha leés **qué hace cada línea**.\n3. Abajo tenés **📖 Palabras técnicas** (qué es, para qué sirve) y **🎤 Qué decirle al profe**.\n4. Tocá **🔊 Escuchar** para oírlo en voz alta. **⏹ Parar** lo corta.\n\nPara avanzar usá la flecha **→** de arriba de este cuadro (o la tecla **→** del teclado si tenés el foco acá).\n\n### Orden recomendado\n- **01** Arquitectura (la idea general)\n- **02 a 08** Una por cada pregunta del examen (A1, A2, A3, B1, B2, C1, C2)\n- **09** Escenario de fallo (puntos extra)\n- **10** Lo que NO usamos y por qué\n\nPara elegir otra guía: panel **Explorador** (izquierda) → sección **CODETOUR**.\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 00 1\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    },
+    {
+      "title": "El mapa del proyecto",
+      "description": "## 🗺️ Las dos apps y cómo se hablan\n\n| Parte | Tecnología | Archivo principal |\n|---|---|---|\n| PC | **Electron** + React | `aplicacion-de-escritorio/electron/main.ts` (red y disco) y `src/App.tsx` (pantalla) |\n| Celular | **React Native** (Expo) | `aplicacion-movil/src/app/index.tsx` |\n\n### Cómo se comunican\n1. **Se encuentran** con **UDP** (puerto 53317): cada uno grita \"¡acá estoy!\" a toda la red cada 1 segundo.\n2. **Mandan los archivos** con **HTTP sobre TCP** (puerto 53318).\n\n### 📖 Palabras técnicas\n- **Electron**: framework para hacer apps de escritorio con tecnologías web. Tiene adentro un **Chromium** (navegador, para dibujar la pantalla) y un **Node.js** (para tocar disco y red).\n- **React Native**: hace apps de celular con React. Los componentes se convierten en vistas nativas de Android.\n- **Expo**: conjunto de herramientas y librerías que facilita React Native (archivos, permisos, compilar el APK).\n- **Protocolo**: las reglas de cómo dos programas se hablan.\n- **UDP**: protocolo **sin conexión**: manda paquetes sueltos, rápido, sin garantía de que lleguen. Permite **broadcast** (mandar a todos).\n- **TCP**: protocolo **con conexión**: garantiza que los bytes lleguen **todos, en orden y sin errores**. No permite broadcast.\n- **HTTP**: protocolo de pedidos y respuestas que viaja sobre TCP (el mismo de la web).\n- **Puerto**: número que identifica a qué programa va un mensaje dentro de una computadora. La IP es la \"casa\"; el puerto, la \"puerta\".\n\n### 🎤 Qué decirle al profe\n> \"Usamos UDP para descubrir porque permite broadcast y es liviano, y TCP con HTTP para los archivos porque necesitamos que lleguen completos y en orden.\"\n\n---\n🔊 **Escuchar este paso:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 00 2\n\n⏹ **Parar el audio:**\n\n>> powershell -NoProfile -ExecutionPolicy Bypass -File .tours/hablar.ps1 parar\n"
+    }
+  ]
+}
